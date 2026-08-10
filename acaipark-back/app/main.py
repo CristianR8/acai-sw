@@ -1,0 +1,112 @@
+import os
+import logging
+
+from fastapi import FastAPI
+from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
+from . import auth, db, factus, inventory, menu, models, personnel, pos, reservations, sales
+
+app = FastAPI()
+
+logger = logging.getLogger("uvicorn.error")
+
+def _auto_migrate_schema() -> None:
+    if os.getenv("AUTO_MIGRATE_SCHEMA", "1") != "1":
+        return
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ALTER COLUMN unit DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products DROP COLUMN IF EXISTS reorder_point"))
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS menu_items "
+                    "ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"
+                )
+            )
+            conn.execute(text("ALTER TABLE IF EXISTS suppliers DROP COLUMN IF EXISTS email"))
+            conn.execute(text("ALTER TABLE IF EXISTS suppliers DROP COLUMN IF EXISTS notes"))
+            conn.execute(text("ALTER TABLE IF EXISTS purchases DROP COLUMN IF EXISTS invoice_number"))
+            conn.execute(
+                text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS supplier_id INTEGER")
+            )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS customer_id INTEGER")
+            )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS waiter_id INTEGER")
+            )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS waiter_id INTEGER")
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS suppliers "
+                    "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS waiters "
+                    "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS customers "
+                    "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS recipes "
+                    "ADD COLUMN IF NOT EXISTS unit VARCHAR"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS full_name VARCHAR"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS profile_photo_url TEXT"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'administrator'"
+                )
+            )
+    except Exception as exc:
+        logger.warning("Auto-migration skipped/failed: %s", exc)
+
+
+@app.on_event("startup")
+def _init_db() -> None:
+    if os.getenv("AUTO_CREATE_TABLES", "1") != "1":
+        return
+    try:
+        models.Base.metadata.create_all(bind=db.engine)
+        _auto_migrate_schema()
+    except OperationalError as exc:
+        database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/girona_dev")
+        logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")
+        logger.error("DATABASE_URL=%s", database_url)
+        if database_url.startswith("postgresql:///") or database_url.startswith("postgres:///"):
+            logger.error(
+                "Hint: this URL uses a local Unix socket; ensure Postgres is running locally (socket like /var/run/postgresql/.s.PGSQL.5432)."
+            )
+        logger.error("%s", exc)
+        raise
+
+app.include_router(auth.router)
+app.include_router(menu.router)
+app.include_router(inventory.router)
+app.include_router(personnel.router)
+app.include_router(pos.router)
+app.include_router(sales.router)
+app.include_router(reservations.router)
+app.include_router(factus.router)
