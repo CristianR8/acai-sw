@@ -26,7 +26,7 @@ export async function CampaignVisitors({ className }: { className?: string }) {
         </div>
 
         <div className="flex justify-between">
-          <div className="text-sm font-medium">Last Campaign Performance</div>
+          <div className="text-sm font-medium">Campaign</div>
 
           <div
             className={cn(
