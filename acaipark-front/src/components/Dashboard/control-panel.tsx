@@ -14,16 +14,8 @@ const COLOMBIA_TZ = "America/Bogota";
 type Sale = {
   id: number;
   total: number | string;
-  service_total: number | string;
   courtesy_total: number | string;
   created_at: string;
-};
-
-type PosOrder = {
-  id: number;
-  status: string;
-  total: number | string;
-  closed_at?: string | null;
 };
 
 type Purchase = {
@@ -33,17 +25,12 @@ type Purchase = {
   received_at?: string | null;
 };
 
+type ExpensePayment = { amount: number | string; payment_date: string };
+
 type SalesByProduct = {
   menu_item_id: number;
   name: string;
   category: string;
-  quantity: number | string;
-  total: number | string;
-};
-
-type SalesByWaiter = {
-  waiter_id: number | null;
-  name: string;
   quantity: number | string;
   total: number | string;
 };
@@ -116,10 +103,9 @@ async function safeJson(response: Response) {
 
 export default function ControlPanel() {
   const [sales, setSales] = useState<Sale[]>([]);
-  const [orders, setOrders] = useState<PosOrder[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [topProducts, setTopProducts] = useState<SalesByProduct[]>([]);
-  const [topWaiters, setTopWaiters] = useState<SalesByWaiter[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -128,42 +114,36 @@ export default function ControlPanel() {
     async function loadData() {
       setLoading(true);
       try {
-        const [salesRes, ordersRes, purchasesRes, productsRes, waitersRes] =
+        const [salesRes, purchasesRes, expensesRes, productsRes] =
           await Promise.all([
             fetch("/api/sales", { cache: "no-store" }),
-            fetch("/api/pos/orders", { cache: "no-store" }),
-            fetch("/api/inventory/purchases", { cache: "no-store" }),
+            fetch("/api/inventory/purchases?history=all", { cache: "no-store" }),
+            fetch("/api/expenses/payments?from_date=2000-01-01", { cache: "no-store" }),
             fetch("/api/sales/summary/products", { cache: "no-store" }),
-            fetch("/api/sales/summary/waiters", { cache: "no-store" }),
           ]);
 
-        const [salesPayload, ordersPayload, purchasesPayload, productsPayload, waitersPayload] =
+        const [salesPayload, purchasesPayload, expensesPayload, productsPayload] =
           await Promise.all([
             safeJson(salesRes),
-            safeJson(ordersRes),
             safeJson(purchasesRes),
+            safeJson(expensesRes),
             safeJson(productsRes),
-            safeJson(waitersRes),
           ]);
 
         if (cancelled) return;
 
         setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
-        setOrders(Array.isArray(ordersPayload) ? (ordersPayload as PosOrder[]) : []);
         setPurchases(Array.isArray(purchasesPayload) ? (purchasesPayload as Purchase[]) : []);
+        setExpenses(Array.isArray(expensesPayload) ? (expensesPayload as ExpensePayment[]) : []);
         setTopProducts(
           Array.isArray(productsPayload) ? (productsPayload as SalesByProduct[]) : [],
-        );
-        setTopWaiters(
-          Array.isArray(waitersPayload) ? (waitersPayload as SalesByWaiter[]) : [],
         );
       } catch {
         if (cancelled) return;
         setSales([]);
-        setOrders([]);
         setPurchases([]);
+        setExpenses([]);
         setTopProducts([]);
-        setTopWaiters([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -210,14 +190,6 @@ export default function ControlPanel() {
     });
   }, [sales, yearStart]);
 
-  const cancellationsToday = useMemo(() => {
-    return orders.filter((order) => {
-      if (order.status !== "void") return false;
-      const closed = parseDate(order.closed_at ?? null);
-      return closed ? isOnOrAfter(closed, todayStart) : false;
-    });
-  }, [orders, todayStart]);
-
   const purchases30Days = useMemo(() => {
     return purchases.filter((purchase) => {
       const created = purchaseDate(purchase);
@@ -229,16 +201,8 @@ export default function ControlPanel() {
     (acc, sale) => acc + safeNumber(sale.total),
     0,
   );
-  const totalTipsToday = salesToday.reduce(
-    (acc, sale) => acc + safeNumber(sale.service_total),
-    0,
-  );
   const totalCourtesyToday = salesToday.reduce(
     (acc, sale) => acc + safeNumber(sale.courtesy_total),
-    0,
-  );
-  const totalCancellationsToday = cancellationsToday.reduce(
-    (acc, order) => acc + safeNumber(order.total),
     0,
   );
   const totalSales7Days = sales7Days.reduce(
@@ -253,17 +217,16 @@ export default function ControlPanel() {
     (acc, sale) => acc + safeNumber(sale.total),
     0,
   );
-  const totalExpenses30Days = purchases30Days.reduce(
+  const totalPurchaseExpenses30Days = purchases30Days.reduce(
     (acc, purchase) => acc + safeNumber(purchase.total_cost),
     0,
   );
+  const totalManualExpenses30Days = expenses.reduce((acc, expense) => {
+    const paidAt = parseDate(expense.payment_date);
+    return paidAt && isOnOrAfter(paidAt, monthStart) ? acc + safeNumber(expense.amount) : acc;
+  }, 0);
 
   const topProductsRows = topProducts
-    .slice()
-    .sort((a, b) => safeNumber(b.total) - safeNumber(a.total))
-    .slice(0, 5);
-
-  const topWaitersRows = topWaiters
     .slice()
     .sort((a, b) => safeNumber(b.total) - safeNumber(a.total))
     .slice(0, 5);
@@ -273,17 +236,8 @@ export default function ControlPanel() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Venta del dia"
-          value={formatMoney(totalSalesToday - totalTipsToday)}
+          value={formatMoney(totalSalesToday)}
           helper={`Hora: ${now.format("HH:mm")}`}
-        />
-        <StatCard
-          title="Propinas del dia"
-          value={formatMoney(totalTipsToday)}
-          helper="Solo servicio"
-        />
-        <StatCard
-          title="Cancelaciones del dia"
-          value={formatMoney(totalCancellationsToday)}
         />
         <StatCard
           title="Cortesias del dia"
@@ -300,12 +254,12 @@ export default function ControlPanel() {
         <StatCard title="Ventas anuales" value={formatMoney(totalSalesYear)} />
         <StatCard
           title="Ingresos vs egresos"
-          value={`${formatMoney(totalSales30Days)} / ${formatMoney(totalExpenses30Days)}`}
+          value={`${formatMoney(totalSales30Days)} / ${formatMoney(totalPurchaseExpenses30Days + totalManualExpenses30Days)}`}
           helper="Ultimos 30 dias"
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div>
         <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
           <h3 className="text-xl font-semibold text-black dark:text-white">
             5 productos mas vendidos
@@ -346,43 +300,6 @@ export default function ControlPanel() {
           )}
         </div>
 
-        <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-          <h3 className="text-xl font-semibold text-black dark:text-white">
-            Top 5 mejores vendedores
-          </h3>
-          <p className="mb-4 text-sm text-body">Ranking por total vendido.</p>
-          {loading ? (
-            <p className="text-sm text-body">Cargando...</p>
-          ) : topWaitersRows.length === 0 ? (
-            <p className="text-sm text-body">Sin datos por ahora.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-secondary/15 text-secondary hover:bg-secondary/15 dark:hover:bg-secondary/15">
-                  <TableHead>Mesero</TableHead>
-                  <TableHead>Ventas</TableHead>
-                  <TableHead>Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topWaitersRows.map((row) => (
-                  <TableRow
-                    key={row.waiter_id ?? row.name}
-                    className="transition-colors hover:bg-secondary/10"
-                  >
-                    <TableCell className="font-medium text-black dark:text-white">
-                      {row.name}
-                    </TableCell>
-                    <TableCell>{formatQty(row.quantity)}</TableCell>
-                    <TableCell className="font-semibold text-black dark:text-white">
-                      {formatMoney(row.total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
       </div>
     </div>
   );

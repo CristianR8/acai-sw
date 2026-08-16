@@ -7,23 +7,15 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { useEffect, useMemo, useState } from "react";
 
-
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const COLOMBIA_TZ = "America/Bogota";
 
-type Sale = {
-  total: number | string;
-  created_at: string;
-};
-
-type Purchase = {
-  total_cost: number | string;
-  created_at: string;
-  purchased_at?: string | null;
-  received_at?: string | null;
-};
+type Sale = { total: number | string; created_at: string };
+type Purchase = { total_cost: number | string; created_at: string; purchased_at?: string | null; received_at?: string | null };
+type ExpensePayment = { amount: number | string; payment_date: string };
+type ChartPoint = { x: string; y: number };
 
 function safeNumber(value: unknown) {
   const num = typeof value === "number" ? value : Number.parseFloat(String(value));
@@ -41,67 +33,70 @@ function purchaseDate(purchase: Purchase) {
   return parseDate(purchase.purchased_at ?? purchase.received_at ?? purchase.created_at);
 }
 
-async function safeJson(response: Response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
+function buildSeries<T>(values: T[], rangeStart: dayjs.Dayjs, rangeEnd: dayjs.Dayjs, dateFor: (value: T) => dayjs.Dayjs | null, amountFor: (value: T) => number): ChartPoint[] {
+  const totalDays = rangeEnd.diff(rangeStart, "day");
+  if (totalDays > 45) {
+    const firstWeek = rangeStart.startOf("week");
+    const lastWeek = rangeEnd.endOf("week");
+    return Array.from({ length: lastWeek.diff(firstWeek, "week") + 1 }, (_, index) => firstWeek.add(index, "week")).map((weekStart) => {
+      const weekEnd = weekStart.endOf("week");
+      const total = values.reduce((sum, value) => {
+        const date = dateFor(value);
+        return !date || date.isBefore(weekStart) || date.isAfter(weekEnd) ? sum : sum + amountFor(value);
+      }, 0);
+      return { x: weekStart.format("DD/MM"), y: Math.round(total) };
+    });
   }
+  return Array.from({ length: totalDays + 1 }, (_, index) => rangeStart.add(index, "day")).map((day) => {
+    const total = values.reduce((sum, value) => {
+      const date = dateFor(value);
+      return date?.isSame(day, "day") ? sum + amountFor(value) : sum;
+    }, 0);
+    return { x: day.format("DD/MM"), y: Math.round(total) };
+  });
+}
+
+async function safeJson(response: Response) {
+  return response.json().catch(() => null);
 }
 
 export default function DashboardCharts() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rangePreset, setRangePreset] = useState<"1m" | "2m" | "3m" | "custom">("1m");
-  const [customStart, setCustomStart] = useState(() =>
-    dayjs().tz(COLOMBIA_TZ).subtract(1, "month").format("YYYY-MM-DD"),
-  );
-  const [customEnd, setCustomEnd] = useState(() =>
-    dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"),
-  );
+  const [rangePreset, setRangePreset] = useState<"1m" | "custom">("1m");
+  const [customStart, setCustomStart] = useState(() => dayjs().tz(COLOMBIA_TZ).subtract(1, "month").format("YYYY-MM-DD"));
+  const [customEnd, setCustomEnd] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
 
   useEffect(() => {
     let cancelled = false;
-
     async function loadData() {
       setLoading(true);
       try {
-        const [salesRes, purchasesRes] = await Promise.all([
+        const today = dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD");
+        const [salesRes, purchasesRes, expensesRes] = await Promise.all([
           fetch("/api/sales", { cache: "no-store" }),
-          fetch("/api/inventory/purchases", { cache: "no-store" }),
+          fetch("/api/inventory/purchases?history=all", { cache: "no-store" }),
+          fetch(`/api/expenses/payments?from_date=2000-01-01&to_date=${today}`, { cache: "no-store" }),
         ]);
-
-        const [salesPayload, purchasesPayload] = await Promise.all([
-          safeJson(salesRes),
-          safeJson(purchasesRes),
-        ]);
-
+        const [salesPayload, purchasesPayload, expensesPayload] = await Promise.all([safeJson(salesRes), safeJson(purchasesRes), safeJson(expensesRes)]);
         if (cancelled) return;
-
-        setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
-        setPurchases(
-          Array.isArray(purchasesPayload) ? (purchasesPayload as Purchase[]) : [],
-        );
+        setSales(Array.isArray(salesPayload) ? salesPayload as Sale[] : []);
+        setPurchases(Array.isArray(purchasesPayload) ? purchasesPayload as Purchase[] : []);
+        setExpenses(Array.isArray(expensesPayload) ? expensesPayload as ExpensePayment[] : []);
       } catch {
         if (cancelled) return;
-        setSales([]);
-        setPurchases([]);
+        setSales([]); setPurchases([]); setExpenses([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-
-    loadData();
-
-    return () => {
-      cancelled = true;
-    };
+    void loadData();
+    return () => { cancelled = true; };
   }, []);
 
-  const now = dayjs().tz(COLOMBIA_TZ);
-  const defaultEnd = now.startOf("day");
-
+  const defaultEnd = dayjs().tz(COLOMBIA_TZ).startOf("day");
   const { rangeStart, rangeEnd, rangeLabel } = useMemo(() => {
     if (rangePreset === "custom") {
       const startCandidate = dayjs.tz(customStart, COLOMBIA_TZ).startOf("day");
@@ -110,174 +105,28 @@ export default function DashboardCharts() {
       const validEnd = endCandidate.isValid() ? endCandidate : defaultEnd;
       const start = validStart.isAfter(validEnd) ? validEnd : validStart;
       const end = validStart.isAfter(validEnd) ? validStart : validEnd;
-      return {
-        rangeStart: start,
-        rangeEnd: end,
-        rangeLabel: `Del ${start.format("DD/MM/YYYY")} al ${end.format("DD/MM/YYYY")}`,
-      };
+      return { rangeStart: start, rangeEnd: end, rangeLabel: `Del ${start.format("DD/MM/YYYY")} al ${end.format("DD/MM/YYYY")}` };
     }
-
-    const months = rangePreset === "2m" ? 2 : rangePreset === "3m" ? 3 : 1;
-    const start = defaultEnd.subtract(months, "month").startOf("day");
-    const end = defaultEnd;
-    const label = `Ultimos ${months} mes${months > 1 ? "es" : ""}`;
-    return { rangeStart: start, rangeEnd: end, rangeLabel: label };
+    return { rangeStart: defaultEnd.subtract(1, "month").startOf("day"), rangeEnd: defaultEnd, rangeLabel: "Último mes" };
   }, [rangePreset, customStart, customEnd, defaultEnd]);
 
-  const dailySeries = useMemo(() => {
-    const totalDays = rangeEnd.diff(rangeStart, "day");
-    const useWeeklyBuckets = totalDays > 45;
+  const salesSeries = useMemo(() => buildSeries(sales, rangeStart, rangeEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total)), [sales, rangeStart, rangeEnd]);
+  const purchasesSeries = useMemo(() => buildSeries(purchases, rangeStart, rangeEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost)), [purchases, rangeStart, rangeEnd]);
+  const expensesSeries = useMemo(() => buildSeries(expenses, rangeStart, rangeEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount)), [expenses, rangeStart, rangeEnd]);
+  const totalExpensesSeries = useMemo(() => purchasesSeries.map((point, index) => ({ x: point.x, y: point.y + (expensesSeries[index]?.y ?? 0) })), [purchasesSeries, expensesSeries]);
 
-    if (useWeeklyBuckets) {
-      const firstWeek = rangeStart.startOf("week");
-      const lastWeek = rangeEnd.endOf("week");
-      const weeks = Array.from(
-        { length: lastWeek.diff(firstWeek, "week") + 1 },
-        (_, index) => firstWeek.add(index, "week"),
-      );
+  const weeklyRangeStart = defaultEnd.subtract(6, "day");
+  const weeklySales = useMemo(() => buildSeries(sales, weeklyRangeStart, defaultEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total)), [sales, weeklyRangeStart, defaultEnd]);
+  const weeklyPurchases = useMemo(() => buildSeries(purchases, weeklyRangeStart, defaultEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost)), [purchases, weeklyRangeStart, defaultEnd]);
+  const weeklyExpenses = useMemo(() => buildSeries(expenses, weeklyRangeStart, defaultEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount)), [expenses, weeklyRangeStart, defaultEnd]);
+  const weeklyTotalExpenses = useMemo(() => weeklyPurchases.map((point, index) => ({ x: point.x, y: point.y + (weeklyExpenses[index]?.y ?? 0) })), [weeklyPurchases, weeklyExpenses]);
 
-      const received = weeks.map((weekStart) => {
-        const weekEnd = weekStart.endOf("week");
-        const total = sales.reduce((acc, sale) => {
-          const created = parseDate(sale.created_at);
-          if (!created) return acc;
-          if (created.isBefore(weekStart) || created.isAfter(weekEnd)) return acc;
-          return acc + safeNumber(sale.total);
-        }, 0);
-        return { x: weekStart.format("DD/MM"), y: Math.round(total) };
-      });
+  const controls = <div className="flex flex-wrap items-center gap-2"><select value={rangePreset} onChange={(event) => setRangePreset(event.target.value as "1m" | "custom")} className="h-9 rounded-md border border-stroke bg-white px-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"><option value="1m">1 mes</option><option value="custom">Personalizado</option></select>{rangePreset === "custom" ? <div className="flex flex-wrap items-center gap-2"><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /><span className="text-sm text-body">a</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /></div> : null}</div>;
 
-      const due = weeks.map((weekStart) => {
-        const weekEnd = weekStart.endOf("week");
-        const total = purchases.reduce((acc, purchase) => {
-          const created = purchaseDate(purchase);
-          if (!created) return acc;
-          if (created.isBefore(weekStart) || created.isAfter(weekEnd)) return acc;
-          return acc + safeNumber(purchase.total_cost);
-        }, 0);
-        return { x: weekStart.format("DD/MM"), y: Math.round(total) };
-      });
-
-      return { received, due };
-    }
-
-    const days = Array.from({ length: totalDays + 1 }, (_, index) =>
-      rangeStart.add(index, "day"),
-    );
-
-    const received = days.map((day) => {
-      const total = sales.reduce((acc, sale) => {
-        const created = parseDate(sale.created_at);
-        if (!created) return acc;
-        if (!created.isSame(day, "day")) return acc;
-        return acc + safeNumber(sale.total);
-      }, 0);
-      return { x: day.format("DD/MM"), y: Math.round(total) };
-    });
-
-    const due = days.map((day) => {
-      const total = purchases.reduce((acc, purchase) => {
-        const created = purchaseDate(purchase);
-        if (!created) return acc;
-        if (!created.isSame(day, "day")) return acc;
-        return acc + safeNumber(purchase.total_cost);
-      }, 0);
-      return { x: day.format("DD/MM"), y: Math.round(total) };
-    });
-
-    return { received, due };
-  }, [sales, purchases, rangeStart, rangeEnd]);
-
-  const weeklySeries = useMemo(() => {
-    const days = Array.from({ length: 7 }, (_, index) =>
-      now.subtract(6 - index, "day").startOf("day"),
-    );
-
-    const salesData = days.map((day) => {
-      const total = sales.reduce((acc, sale) => {
-        const created = parseDate(sale.created_at);
-        if (!created) return acc;
-        if (!created.isSame(day, "day")) return acc;
-        return acc + safeNumber(sale.total);
-      }, 0);
-      return { x: day.format("dd"), y: Math.round(total) };
-    });
-
-    const expensesData = days.map((day) => {
-      const total = purchases.reduce((acc, purchase) => {
-        const created = purchaseDate(purchase);
-        if (!created) return acc;
-        if (!created.isSame(day, "day")) return acc;
-        return acc + safeNumber(purchase.total_cost);
-      }, 0);
-      return { x: day.format("dd"), y: Math.round(total) };
-    });
-
-    return { sales: salesData, revenue: expensesData };
-  }, [sales, purchases, now]);
-
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-body-2xlg font-bold text-dark dark:text-white">
-              Ingresos y egresos
-            </h2>
-            <p className="text-sm text-body">{rangeLabel}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={rangePreset}
-              onChange={(event) =>
-                setRangePreset(event.target.value as typeof rangePreset)
-              }
-              className="h-9 rounded-md border border-stroke bg-white px-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-            >
-              <option value="1m">1 mes</option>
-              <option value="2m">2 meses</option>
-              <option value="3m">3 meses</option>
-              <option value="custom">Personalizado</option>
-            </select>
-            {rangePreset === "custom" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  value={customStart}
-                  onChange={(event) => setCustomStart(event.target.value)}
-                  className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                />
-                <span className="text-sm text-body">a</span>
-                <input
-                  type="date"
-                  value={customEnd}
-                  onChange={(event) => setCustomEnd(event.target.value)}
-                  className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-        {loading ? (
-          <p className="text-sm text-body">Cargando grafica...</p>
-        ) : (
-          <PaymentsOverviewChart data={dailySeries} />
-        )}
-      </div>
-
-      <div className="rounded-[10px] bg-white px-7.5 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card">
-        <div className="mb-2">
-          <h2 className="text-body-2xlg font-bold text-dark dark:text-white">
-            Ingresos vs Egresos
-          </h2>
-          <p className="text-sm text-body">Comparativo ultimos 7 dias.</p>
-        </div>
-        {loading ? (
-          <p className="text-sm text-body">Cargando grafica...</p>
-        ) : (
-          <WeeksProfitChart data={weeklySeries} />
-        )}
-      </div>
-    </div>
-  );
+  return <div className="grid gap-4 md:grid-cols-2">
+    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Ingresos y egresos</h2><p className="text-sm text-body">{rangeLabel}</p></div>{controls}</div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: salesSeries, due: totalExpensesSeries }} receivedLabel="Ingresos" dueLabel="Egresos totales" />}</section>
+    <section className="rounded-[10px] bg-white px-7.5 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-2"><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Ingresos vs egresos</h2><p className="text-sm text-body">Comparativo de los últimos 7 días.</p></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <WeeksProfitChart data={{ sales: weeklySales, revenue: weeklyTotalExpenses }} />}</section>
+    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3"><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Egresos por compras</h2><p className="text-sm text-body">{rangeLabel}</p></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: purchasesSeries }} receivedLabel="Compras" colors={["#ff2056"]} />}</section>
+    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3"><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Egresos por gastos</h2><p className="text-sm text-body">Pagos manuales registrados · {rangeLabel}</p></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: expensesSeries }} receivedLabel="Gastos" colors={["#f59e0b"]} />}</section>
+  </div>;
 }

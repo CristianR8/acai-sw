@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SearchIcon } from "@/assets/icons";
 import { standardFormat } from "@/lib/format-number";
 
-type TabKey = "customers" | "suppliers" | "waiters";
+type TabKey = "customers" | "suppliers";
 
 type Supplier = {
   id: number;
@@ -25,18 +25,9 @@ type Customer = {
   created_at: string;
 };
 
-type Waiter = {
-  id: number;
-  name: string;
-  gender?: string | null;
-  is_active: boolean;
-  created_at: string;
-};
-
 type Sale = {
   id: number;
   customer_id: number | null;
-  waiter_id: number | null;
   total: number | string;
   created_at: string;
 };
@@ -77,9 +68,6 @@ function getCardBackground(
   if (tab === "customers") {
     return normalized === "female" ? "/backgrounds/cliente.png" : "/backgrounds/cliente_2.png";
   }
-  if (tab === "waiters") {
-    return normalized === "female" ? "/backgrounds/waiter_2.png" : "/backgrounds/mesero.png";
-  }
   return "/backgrounds/proveedor.png";
 }
 
@@ -91,7 +79,6 @@ export default function Personnel() {
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [waiters, setWaiters] = useState<Waiter[]>([]);
 
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
@@ -127,14 +114,6 @@ export default function Personnel() {
       normalizeSearchText(`${customer.name} ${customer.identity_document}`).includes(term),
     );
   }, [customers, searchTerm]);
-
-  const filteredWaiters = useMemo(() => {
-    const term = normalizeSearchText(searchTerm);
-    if (!term) return waiters;
-    return waiters.filter((waiter) =>
-      normalizeSearchText(waiter.name ?? "").includes(term),
-    );
-  }, [waiters, searchTerm]);
 
   useEffect(() => {
     loadCurrentTab();
@@ -177,23 +156,10 @@ export default function Personnel() {
           );
         }
         setSuppliers(Array.isArray(payload) ? (payload as Supplier[]) : []);
-      } else {
-        const response = await fetch(`/api/personnel/waiters${query}`, {
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as any;
-        if (!response.ok) {
-          throw new Error(
-            (typeof payload?.message === "string" && payload.message) ||
-              "No se pudo cargar meseros",
-          );
-        }
-        setWaiters(Array.isArray(payload) ? (payload as Waiter[]) : []);
       }
     } catch {
       if (tab === "customers") setCustomers([]);
       if (tab === "suppliers") setSuppliers([]);
-      if (tab === "waiters") setWaiters([]);
     } finally {
       setLoading(false);
     }
@@ -224,7 +190,7 @@ export default function Personnel() {
     setShowForm(true);
   }
 
-  function openEdit(target: Supplier | Customer | Waiter) {
+  function openEdit(target: Supplier | Customer) {
     setFormMode("edit");
     setEditingId(target.id);
     setSubmitStatus({ kind: "idle" });
@@ -273,15 +239,13 @@ export default function Personnel() {
     });
   }
 
-  async function openDetails(target: Supplier | Customer | Waiter) {
+  async function openDetails(target: Supplier | Customer) {
     const isSupplier = tab === "suppliers";
     const title = isSupplier ? "Compras asociadas" : "Ventas asociadas";
     const emptyMessage =
       tab === "customers"
         ? "No hay ventas asociadas para este cliente."
-        : tab === "waiters"
-          ? "No hay ventas asociadas para este mesero."
-          : "No hay compras asociadas para este proveedor.";
+        : "No hay compras asociadas para este proveedor.";
 
     setDetailsOpen(true);
     setDetailsLoading(true);
@@ -320,11 +284,7 @@ export default function Personnel() {
         const entries =
           Array.isArray(payload) && payload.length > 0
             ? payload
-                .filter((sale) =>
-                  tab === "customers"
-                    ? sale.customer_id === target.id
-                    : sale.waiter_id === target.id,
-                )
+                .filter((sale) => sale.customer_id === target.id)
                 .map((sale) => ({
                   id: sale.id,
                   date: formatDate(sale.created_at),
@@ -362,11 +322,7 @@ export default function Personnel() {
     const phone = phoneInput.trim();
 
     const endpoint =
-      tab === "customers"
-        ? "customers"
-        : tab === "suppliers"
-          ? "suppliers"
-          : "waiters";
+      tab === "customers" ? "customers" : "suppliers";
 
     const url =
       formMode === "create"
@@ -467,8 +423,7 @@ export default function Personnel() {
     }
   }
 
-  const currentSingular =
-    tab === "customers" ? "Cliente" : tab === "suppliers" ? "Proveedor" : "Mesero";
+  const currentSingular = tab === "customers" ? "Cliente" : "Proveedor";
   const detailsTotal = detailsEntries.reduce((sum, entry) => sum + entry.total, 0);
 
   return (
@@ -477,7 +432,7 @@ export default function Personnel() {
         <div>
           <h2 className="text-xl font-semibold text-dark dark:text-white">Modulo de personal</h2>
           <p className="text-sm text-body-color dark:text-dark-6">
-            Gestiona clientes, proveedores y meseros desde un solo lugar.
+            Gestiona clientes y proveedores desde un solo lugar.
           </p>
         </div>
         <button
@@ -512,18 +467,6 @@ export default function Personnel() {
         >
           Proveedores
         </button>
-        <button
-          type="button"
-          onClick={() => setTab("waiters")}
-          className={
-            tab === "waiters"
-              ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Meseros
-        </button>
-
         <div className="ml-auto flex flex-wrap gap-2">
           <div className="relative w-full max-w-xs">
             <input
@@ -599,33 +542,33 @@ export default function Personnel() {
               </div>
             ) : null}
 
-            {tab !== "waiters" ? (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                  Telefono
-                </label>
-                <input
-                  value={phoneInput}
-                  onChange={(e) => setPhoneInput(e.target.value)}
-                  placeholder="Telefono"
-                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                />
-              </div>
-            ) : null}
-
             <div>
               <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                Genero
+                Telefono
               </label>
-              <select
-                value={genderInput}
-                onChange={(e) => setGenderInput(e.target.value)}
+              <input
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                placeholder="Telefono"
                 className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-              >
-                <option value="male">Masculino</option>
-                <option value="female">Femenino</option>
-              </select>
+              />
             </div>
+
+            {tab !== "suppliers" ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                  Genero
+                </label>
+                <select
+                  value={genderInput}
+                  onChange={(e) => setGenderInput(e.target.value)}
+                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                >
+                  <option value="male">Masculino</option>
+                  <option value="female">Femenino</option>
+                </select>
+              </div>
+            ) : null}
 
           </div>
 
@@ -788,73 +731,7 @@ export default function Personnel() {
               ))}
             </div>
           )
-        ) : filteredWaiters.length === 0 ? (
-          <div className="rounded-md border border-dashed border-stroke bg-gray-1 px-4 py-6 text-sm text-body-color dark:border-dark-3 dark:bg-dark-2 dark:text-dark-6">
-            No hay meseros registrados.
-          </div>
-        ) : (
-          <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {filteredWaiters.map((waiter) => (
-              <div
-                key={`waiter-${waiter.id}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => openDetails(waiter)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    openDetails(waiter);
-                  }
-                }}
-                className="group relative flex min-h-[240px] flex-col justify-between overflow-hidden rounded-2xl border border-stroke bg-gray-2 p-5 text-left text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-dark-3"
-                style={{
-                  backgroundImage: `url('${getCardBackground("waiters", waiter.gender)}')`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}
-              >
-                <div className="absolute inset-0 bg-black/60" />
-                <div className="relative z-10 space-y-2">
-                  <h3 className="text-lg font-extrabold">{waiter.name}</h3>
-                  <p
-                    className={`text-sm font-semibold ${
-                      waiter.is_active ? "text-green-200" : "text-red-200"
-                    }`}
-                  >
-                    {waiter.is_active ? "Activo" : "Inactivo"}
-                  </p>
-                </div>
-                <div className="relative z-10 mt-5 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openEdit(waiter);
-                    }}
-                    className="rounded-md bg-white/90 px-3 py-2 text-sm font-semibold text-dark transition hover:bg-white"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={togglingIds.has(waiter.id)}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleActive(!waiter.is_active, waiter.id);
-                    }}
-                    className={
-                      waiter.is_active
-                        ? "rounded-md bg-red/90 px-3 py-2 text-sm font-semibold text-white hover:bg-red"
-                        : "rounded-md bg-green/90 px-3 py-2 text-sm font-semibold text-white hover:bg-green"
-                    }
-                  >
-                    {waiter.is_active ? "Desactivar" : "Activar"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        ) : null}
       </div>
 
       {detailsOpen ? (

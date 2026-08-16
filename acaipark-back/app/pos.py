@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
 import logging
 import os
-import subprocess
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -12,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import db, models, schemas
+from .thermal_printer import print_thermal_text
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger("uvicorn.error")
@@ -96,6 +95,11 @@ def _format_quantity(value: Decimal) -> str:
     return normalized.rstrip("0").rstrip(".")
 
 
+def _format_cop(value: Decimal) -> str:
+    rounded = Decimal(value).quantize(Decimal("1"))
+    return f"${int(rounded):,}".replace(",", ".")
+
+
 def _build_ticket_text(
     *,
     order_id: int,
@@ -127,39 +131,81 @@ def _build_ticket_text(
     return "\n".join(lines)
 
 
+def _build_sale_receipt_text(
+    *,
+    sale: models.Sale,
+    order: models.PosOrder,
+    customer: models.Customer | None,
+) -> str:
+    width = 40
+    separator = "-" * width
+    created_at = sale.created_at or order.closed_at or datetime.now(timezone.utc)
+    created_local = created_at.astimezone().strftime("%Y-%m-%d %H:%M")
+    business_name = (os.getenv("POS_RECEIPT_BUSINESS_NAME") or "ACAI PARK").strip()
+    tax_id = (os.getenv("POS_RECEIPT_TAX_ID") or "").strip()
+    address = (os.getenv("POS_RECEIPT_ADDRESS") or "").strip()
+    phone = (os.getenv("POS_RECEIPT_PHONE") or "").strip()
+    footer = (
+        os.getenv("POS_RECEIPT_FOOTER")
+        or "Gracias por tu compra. Te esperamos pronto."
+    ).strip()
+
+    lines = [business_name.upper()]
+    if tax_id:
+        lines.append(f"NIT: {tax_id}")
+    if address:
+        lines.append(address)
+    if phone:
+        lines.append(f"Tel: {phone}")
+
+    lines.extend(
+        [
+            separator,
+            f"RECIBO DE VENTA #{sale.id}",
+            f"Pedido: #{order.id}",
+            f"Fecha: {created_local}",
+        ]
+    )
+    if customer:
+        lines.append(f"Cliente: {customer.name}")
+        lines.append(f"Documento: {customer.identity_document}")
+        if customer.phone:
+            lines.append(f"Telefono: {customer.phone}")
+    else:
+        lines.append("Cliente: Consumidor final")
+    if order.table:
+        lines.append(f"Punto: {order.table.name}")
+    lines.append(separator)
+
+    for item in order.items:
+        quantity = Decimal(item.quantity)
+        unit_price = Decimal(item.unit_price)
+        lines.append((item.name or "Producto").strip())
+        lines.append(
+            f"{_format_quantity(quantity)} x {_format_cop(unit_price)}"
+            f" = {_format_cop(Decimal(item.line_total))}"
+        )
+
+    lines.extend([separator, f"Subtotal: {_format_cop(Decimal(sale.subtotal))}"])
+    if Decimal(sale.discount_total) > 0:
+        lines.append(f"Descuentos: {_format_cop(Decimal(sale.discount_total))}")
+    if Decimal(sale.tax_total) > 0:
+        lines.append(f"INC: {_format_cop(Decimal(sale.tax_total))}")
+    if Decimal(sale.service_total) > 0:
+        lines.append(f"Servicio: {_format_cop(Decimal(sale.service_total))}")
+    lines.extend(
+        [
+            f"TOTAL: {_format_cop(Decimal(sale.total))}",
+            separator,
+            footer,
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int) -> None:
-    if os.name != "nt":
-        raise RuntimeError("Impresion automatica disponible solo en Windows")
-
-    encoded_text = base64.b64encode(text.encode("utf-8")).decode("ascii")
-    safe_hint = printer_hint.replace("'", "''")
-    safe_copies = max(1, min(copies, 5))
-
-    ps_command = (
-        f"$printerHint='{safe_hint}';"
-        "$printer=Get-Printer | Where-Object { "
-        "$_.Name -eq $printerHint -or "
-        "$_.Name -like ('*' + $printerHint + '*') -or "
-        "$_.PortName -eq $printerHint -or "
-        "$_.PortName -like ('*' + $printerHint + '*') "
-        "} | Select-Object -First 1;"
-        "if(-not $printer){ "
-        "$available=(Get-Printer | Select-Object -ExpandProperty Name) -join ', ';"
-        "throw \"No se encontro impresora: $printerHint. Disponibles: $available\" "
-        "};"
-        f"$text=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_text}'));"
-        f"for($i=0; $i -lt {safe_copies}; $i++){{ $text | Out-Printer -Name $printer.Name }}"
-    )
-
-    completed = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", ps_command],
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
-    if completed.returncode != 0:
-        stderr = (completed.stderr or completed.stdout or "").strip()
-        raise RuntimeError(stderr or "Error desconocido al enviar impresion")
+    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies)
 
 
 def _auto_print_comanda(
@@ -169,10 +215,14 @@ def _auto_print_comanda(
     created_at: datetime,
     items: list[models.PosOrderItem],
 ) -> None:
-    if not _env_bool("POS_AUTO_PRINT_COMANDA", default=False):
+    if not _env_bool("POS_AUTO_PRINT_COMANDA", default=os.name == "nt"):
         return
 
-    printer_hint = (os.getenv("POS_COMANDA_PRINTER") or "M2020").strip()
+    printer_hint = (
+        os.getenv("POS_COMANDA_PRINTER")
+        or os.getenv("POS_THERMAL_PRINTER")
+        or "80mm Series Thermal Receipt Printer"
+    ).strip()
     if not printer_hint:
         logger.warning("POS_AUTO_PRINT_COMANDA activo pero POS_COMANDA_PRINTER vacio")
         return
@@ -221,6 +271,57 @@ def _auto_print_comanda(
             )
 
 
+def _auto_print_sale_receipt(
+    *,
+    sale: models.Sale,
+    order: models.PosOrder,
+    customer: models.Customer | None,
+) -> None:
+    if not _env_bool("POS_AUTO_PRINT_RECEIPT", default=os.name == "nt"):
+        return
+
+    printer_hint = (
+        os.getenv("POS_RECEIPT_PRINTER")
+        or os.getenv("POS_COMANDA_PRINTER")
+        or os.getenv("POS_THERMAL_PRINTER")
+        or "80mm Series Thermal Receipt Printer"
+    ).strip()
+    if not printer_hint:
+        logger.warning("POS_AUTO_PRINT_RECEIPT activo pero POS_RECEIPT_PRINTER vacio")
+        return
+
+    copies_raw = (os.getenv("POS_RECEIPT_COPIES") or "1").strip()
+    try:
+        copies = int(copies_raw)
+    except ValueError:
+        copies = 1
+
+    receipt_text = _build_sale_receipt_text(
+        sale=sale,
+        order=order,
+        customer=customer,
+    )
+    try:
+        _send_text_to_windows_printer(
+            text=receipt_text,
+            printer_hint=printer_hint,
+            copies=copies,
+        )
+        logger.info(
+            "Recibo de venta #%s enviado a impresora '%s' (cliente=%s)",
+            sale.id,
+            printer_hint,
+            customer.id if customer else "ocasional",
+        )
+    except Exception as exc:
+        logger.warning(
+            "No se pudo imprimir recibo de venta #%s en '%s': %s",
+            sale.id,
+            printer_hint,
+            exc,
+        )
+
+
 def _recompute_order_for_close(order: models.PosOrder, apply_inc: bool) -> None:
     effective_tax_rate = INC_RATE if apply_inc else Decimal("0")
     items = list(order.items)
@@ -258,13 +359,10 @@ def _create_sale_from_order(
     db_session: Session,
     order: models.PosOrder,
     customer_id: int | None = None,
-    waiter_id: int | None = None,
 ) -> models.Sale:
     if order.sale:
         if customer_id is not None:
             order.sale.customer_id = customer_id
-        if waiter_id is not None:
-            order.sale.waiter_id = waiter_id
         return order.sale
 
     sale_subtotal = Decimal("0")
@@ -296,7 +394,6 @@ def _create_sale_from_order(
     sale = models.Sale(
         order_id=order.id,
         customer_id=customer_id,
-        waiter_id=waiter_id,
         subtotal=sale_subtotal,
         tax_total=sale_tax_total,
         discount_total=order.discount_total,
@@ -306,6 +403,17 @@ def _create_sale_from_order(
     )
     db_session.add(sale)
     db_session.flush()
+
+    if customer_id is not None:
+        customer = db_session.query(models.Customer).filter(models.Customer.id == customer_id).first()
+        if customer:
+            stamps = int(customer.loyalty_stamps or 0) + 1
+            if stamps >= 10:
+                customer.loyalty_stamps = 0
+                customer.loyalty_rewards = int(customer.loyalty_rewards or 0) + 1
+            else:
+                customer.loyalty_stamps = stamps
+            db_session.add(customer)
 
     for payload in sale_items_payload:
         sale_item = models.SaleItem(
@@ -479,19 +587,12 @@ def mark_order_delivered(
         raise HTTPException(status_code=404, detail="Orden no encontrada")
 
     if payload.delivered:
-        waiter_id = payload.waiter_id
-        if waiter_id is not None:
-            waiter = (
-                db_session.query(models.Waiter)
-                .filter(models.Waiter.id == waiter_id, models.Waiter.is_active == True)  # noqa: E712
-                .first()
-            )
-            if not waiter:
-                raise HTTPException(status_code=404, detail="Mesero no encontrado")
-            order.waiter_id = waiter.id
         now = datetime.now(timezone.utc)
         order.delivered_at = now
-        order.status = "delivered"
+        # A paid order is completed only after the physical delivery.
+        # Older orders used ``delivered`` before payment, so keep that
+        # state for backwards compatibility when no payment exists yet.
+        order.status = "closed" if order.status == "paid" else "delivered"
         for item in order.items:
             item.delivered_at = item.delivered_at or now
     else:
@@ -559,17 +660,36 @@ def mark_order_closed(
 
     now = datetime.now(timezone.utc)
     order.closed_at = now
-    order.status = "closed"
+    # Payment and delivery are separate steps in the POS flow. The order
+    # remains active as ``paid`` until it is physically delivered.
+    order.status = "paid"
 
-    _create_sale_from_order(
+    should_print_receipt = order.sale is None or (
+        customer_id is not None and order.sale.customer_id != customer_id
+    )
+    sale = _create_sale_from_order(
         db_session,
         order,
         customer_id=customer_id,
-        waiter_id=order.waiter_id,
     )
     db_session.add(order)
     db_session.commit()
     db_session.refresh(order)
+    db_session.refresh(sale)
+
+    if should_print_receipt:
+        customer = None
+        if customer_id is not None:
+            customer = (
+                db_session.query(models.Customer)
+                .filter(models.Customer.id == customer_id)
+                .first()
+            )
+        _auto_print_sale_receipt(
+            sale=sale,
+            order=order,
+            customer=customer,
+        )
     return order
 
 

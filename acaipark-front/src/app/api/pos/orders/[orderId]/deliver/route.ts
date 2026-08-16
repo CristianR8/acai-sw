@@ -49,9 +49,7 @@ export async function POST(
     return NextResponse.json({ message: "ID de orden requerido" }, { status: 400 });
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | { delivered?: boolean; waiter_id?: number | null }
-    | null;
+  const body = (await request.json().catch(() => null)) as { delivered?: boolean } | null;
   const delivered = body?.delivered ?? true;
 
   const backendBaseUrl = getBackendBaseUrl();
@@ -62,7 +60,7 @@ export async function POST(
     response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ delivered, waiter_id: body?.waiter_id ?? null }),
+      body: JSON.stringify({ delivered }),
     });
   } catch (error) {
     return NextResponse.json(

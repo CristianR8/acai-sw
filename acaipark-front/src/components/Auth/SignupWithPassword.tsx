@@ -125,7 +125,7 @@ export default function SignupWithPassword() {
       <InputGroup
         type="email"
         label="Correo electrónico"
-        className="mb-4 text-red-300 [&_input]:py-[15px]"
+        className="mb-4 [&_input]:py-[15px] [&_input]:text-white [&_input]:placeholder:text-white/60"
         placeholder="Ingresa tu correo electrónico"
         name="email"
         handleChange={handleChange}
@@ -136,7 +136,7 @@ export default function SignupWithPassword() {
       <InputGroup
         type="password"
         label="Contraseña"
-        className="mb-4 text-red-300 [&_input]:py-[15px]"
+        className="mb-4 [&_input]:py-[15px] [&_input]:text-white [&_input]:placeholder:text-white/60"
         placeholder="Crea una contraseña"
         name="password"
         handleChange={handleChange}
@@ -155,7 +155,7 @@ export default function SignupWithPassword() {
               role: event.target.value as "administrator" | "cashier",
             }))
           }
-          className="mt-2 w-full rounded-lg border border-white/25 bg-white/90 px-4 py-[15px] text-dark outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className="mt-2 w-full rounded-lg border border-white/25 bg-white/10 px-4 py-[15px] text-white outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 [&_option]:bg-white [&_option]:text-dark"
         >
           <option value="administrator">Administrador</option>
           <option value="cashier">Cajero</option>
@@ -165,7 +165,7 @@ export default function SignupWithPassword() {
       <InputGroup
         type="password"
         label="Confirmar contraseña"
-        className="mb-5 text-red-300 [&_input]:py-[15px]"
+        className="mb-5 [&_input]:py-[15px] [&_input]:text-white [&_input]:placeholder:text-white/60"
         placeholder="Repite tu contraseña"
         name="confirmPassword"
         handleChange={handleChange}

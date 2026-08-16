@@ -43,43 +43,13 @@ type Sale = {
   service_total: number | string;
   total: number | string;
   created_at: string;
-  electronic_invoice_status?: string | null;
-  electronic_invoice_number?: string | null;
-  electronic_invoice_environment?: string | null;
-  electronic_invoice_cufe?: string | null;
-  electronic_invoice_qr_url?: string | null;
-  electronic_invoice_email_status?: string | null;
-  electronic_invoice_email_address?: string | null;
-  electronic_invoice_email_error?: string | null;
   items: SaleItem[];
-};
-
-type Purchase = {
-  id: number;
-  total_cost: number | string;
-  purchased_at?: string | null;
-  received_at?: string | null;
-  created_at: string;
-  supplier_name?: string | null;
 };
 
 type SalesByProduct = {
   menu_item_id: number;
   name: string;
   category: string;
-  quantity: number | string;
-  total: number | string;
-};
-
-type SalesByCategory = {
-  category: string;
-  quantity: number | string;
-  total: number | string;
-};
-
-type SalesByWaiter = {
-  waiter_id: number | null;
-  name: string;
   quantity: number | string;
   total: number | string;
 };
@@ -94,8 +64,6 @@ type SalesAdjustmentsByMonth = {
 const SALES_HISTORY_PAGE_SIZE = 10;
 const ADJUSTMENTS_MONTHLY_PAGE_SIZE = 8;
 const SALES_BY_PRODUCT_PAGE_SIZE = 8;
-const SALES_BY_CATEGORY_PAGE_SIZE = 8;
-const SALES_BY_WAITER_PAGE_SIZE = 8;
 type TimeFilter = "all" | "week" | "month" | "quarter" | "year";
 
 const TIME_FILTER_OPTIONS: Array<{ value: TimeFilter; label: string }> = [
@@ -251,33 +219,21 @@ function TimeFilterSelect({
 
 export default function Sales() {
   const [sales, setSales] = useState<Sale[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
-  const [salesByCategory, setSalesByCategory] = useState<SalesByCategory[]>([]);
-  const [salesByWaiter, setSalesByWaiter] = useState<SalesByWaiter[]>([]);
   const [salesAdjustmentsByMonth, setSalesAdjustmentsByMonth] = useState<
     SalesAdjustmentsByMonth[]
   >([]);
   const [salesHistoryPage, setSalesHistoryPage] = useState(1);
   const [salesByProductPage, setSalesByProductPage] = useState(1);
-  const [salesByCategoryPage, setSalesByCategoryPage] = useState(1);
-  const [salesByWaiterPage, setSalesByWaiterPage] = useState(1);
   const [adjustmentsMonthlyPage, setAdjustmentsMonthlyPage] = useState(1);
   const [salesHistoryFilter, setSalesHistoryFilter] =
     useState<TimeFilter>("all");
   const [salesByProductFilter, setSalesByProductFilter] =
     useState<TimeFilter>("all");
-  const [salesByCategoryFilter, setSalesByCategoryFilter] =
-    useState<TimeFilter>("all");
-  const [salesByWaiterFilter, setSalesByWaiterFilter] =
-    useState<TimeFilter>("all");
   const [adjustmentsMonthlyFilter, setAdjustmentsMonthlyFilter] =
     useState<TimeFilter>("all");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [sendingEmailSaleId, setSendingEmailSaleId] = useState<number | null>(
-    null,
-  );
 
   const withPeriodParam = useCallback(
     (basePath: string, period: TimeFilter) => {
@@ -293,10 +249,7 @@ export default function Sales() {
       const [
         salesResponse,
         productsResponse,
-        categoriesResponse,
-        waitersResponse,
         adjustmentsMonthlyResponse,
-        purchasesResponse,
       ] = await Promise.all([
         fetch(withPeriodParam("/api/sales", salesHistoryFilter), {
           cache: "no-store",
@@ -309,43 +262,21 @@ export default function Sales() {
         ),
         fetch(
           withPeriodParam(
-            "/api/sales/summary/categories",
-            salesByCategoryFilter,
-          ),
-          {
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          withPeriodParam("/api/sales/summary/waiters", salesByWaiterFilter),
-          {
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          withPeriodParam(
             "/api/sales/summary/adjustments/monthly",
             adjustmentsMonthlyFilter,
           ),
           { cache: "no-store" },
         ),
-        fetch("/api/inventory/purchases", { cache: "no-store" }),
       ]);
 
       const [
         salesPayload,
         productsPayload,
-        categoriesPayload,
-        waitersPayload,
         adjustmentsMonthlyPayload,
-        purchasesPayload,
       ] = await Promise.all([
         safeJson(salesResponse),
         safeJson(productsResponse),
-        safeJson(categoriesResponse),
-        safeJson(waitersResponse),
         safeJson(adjustmentsMonthlyResponse),
-        safeJson(purchasesResponse),
       ]);
 
       if (!salesResponse.ok) {
@@ -360,44 +291,16 @@ export default function Sales() {
             "No se pudo cargar ventas por producto",
         );
       }
-      if (!categoriesResponse.ok) {
-        throw new Error(
-          (categoriesPayload as any)?.message ||
-            "No se pudo cargar ventas por categoria",
-        );
-      }
-      if (!waitersResponse.ok) {
-        throw new Error(
-          (waitersPayload as any)?.message ||
-            "No se pudo cargar ventas por mesero",
-        );
-      }
       if (!adjustmentsMonthlyResponse.ok) {
         throw new Error(
           (adjustmentsMonthlyPayload as any)?.message ||
             "No se pudo cargar cortesias/descuentos por mes",
         );
       }
-      if (!purchasesResponse.ok) {
-        throw new Error(
-          (purchasesPayload as any)?.message || "No se pudieron cargar los egresos",
-        );
-      }
-
       setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
       setSalesByProduct(
         Array.isArray(productsPayload)
           ? (productsPayload as SalesByProduct[])
-          : [],
-      );
-      setSalesByCategory(
-        Array.isArray(categoriesPayload)
-          ? (categoriesPayload as SalesByCategory[])
-          : [],
-      );
-      setSalesByWaiter(
-        Array.isArray(waitersPayload)
-          ? (waitersPayload as SalesByWaiter[])
           : [],
       );
       setSalesAdjustmentsByMonth(
@@ -405,25 +308,19 @@ export default function Sales() {
           ? (adjustmentsMonthlyPayload as SalesAdjustmentsByMonth[])
           : [],
       );
-      setPurchases(Array.isArray(purchasesPayload) ? (purchasesPayload as Purchase[]) : []);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo cargar ventas";
       setErrorMessage(message);
       setSales([]);
       setSalesByProduct([]);
-      setSalesByCategory([]);
-      setSalesByWaiter([]);
       setSalesAdjustmentsByMonth([]);
-      setPurchases([]);
     } finally {
       setLoading(false);
     }
   }, [
     adjustmentsMonthlyFilter,
-    salesByCategoryFilter,
     salesByProductFilter,
-    salesByWaiterFilter,
     salesHistoryFilter,
     withPeriodParam,
   ]);
@@ -432,66 +329,11 @@ export default function Sales() {
     loadSalesData();
   }, [loadSalesData]);
 
-  const handleResendEmail = useCallback(
-    async (sale: Sale) => {
-      const suggestedEmail = sale.electronic_invoice_email_address ?? "";
-      const emailInput = window.prompt(
-        "Correo destino para enviar la factura",
-        suggestedEmail,
-      );
-      const email = emailInput?.trim() ?? "";
-      if (!email) return;
-
-      setSendingEmailSaleId(sale.id);
-      try {
-        const response = await fetch(
-          `/api/factus/sales/${sale.id}/send-email`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ email }),
-          },
-        );
-        const payload = await safeJson(response);
-        if (!response.ok) {
-          throw new Error(
-            (payload as any)?.message ||
-              (payload as any)?.detail ||
-              "No se pudo reenviar el correo",
-          );
-        }
-        await loadSalesData();
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "No se pudo reenviar el correo";
-        window.alert(message);
-      } finally {
-        setSendingEmailSaleId(null);
-      }
-    },
-    [loadSalesData],
-  );
-
   const totalSalesValue = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
     [sales],
   );
   const totalSalesCount = sales.length;
-  const totalItemsSold = useMemo(
-    () =>
-      sales.reduce(
-        (acc, sale) =>
-          acc +
-          sale.items.reduce(
-            (inner, item) => inner + safeNumber(item.quantity),
-            0,
-          ),
-        0,
-      ),
-    [sales],
-  );
   const totalCourtesyApplied = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.courtesy_count), 0),
     [sales],
@@ -508,14 +350,6 @@ export default function Sales() {
     1,
     Math.ceil(salesByProduct.length / SALES_BY_PRODUCT_PAGE_SIZE),
   );
-  const salesByCategoryTotalPages = Math.max(
-    1,
-    Math.ceil(salesByCategory.length / SALES_BY_CATEGORY_PAGE_SIZE),
-  );
-  const salesByWaiterTotalPages = Math.max(
-    1,
-    Math.ceil(salesByWaiter.length / SALES_BY_WAITER_PAGE_SIZE),
-  );
   const adjustmentsMonthlyTotalPages = Math.max(
     1,
     Math.ceil(salesAdjustmentsByMonth.length / ADJUSTMENTS_MONTHLY_PAGE_SIZE),
@@ -528,14 +362,6 @@ export default function Sales() {
   useEffect(() => {
     setSalesByProductPage((prev) => Math.min(prev, salesByProductTotalPages));
   }, [salesByProductTotalPages]);
-
-  useEffect(() => {
-    setSalesByCategoryPage((prev) => Math.min(prev, salesByCategoryTotalPages));
-  }, [salesByCategoryTotalPages]);
-
-  useEffect(() => {
-    setSalesByWaiterPage((prev) => Math.min(prev, salesByWaiterTotalPages));
-  }, [salesByWaiterTotalPages]);
 
   useEffect(() => {
     setAdjustmentsMonthlyPage((prev) =>
@@ -552,14 +378,6 @@ export default function Sales() {
   }, [salesByProductFilter]);
 
   useEffect(() => {
-    setSalesByCategoryPage(1);
-  }, [salesByCategoryFilter]);
-
-  useEffect(() => {
-    setSalesByWaiterPage(1);
-  }, [salesByWaiterFilter]);
-
-  useEffect(() => {
     setAdjustmentsMonthlyPage(1);
   }, [adjustmentsMonthlyFilter]);
 
@@ -573,16 +391,6 @@ export default function Sales() {
     return salesByProduct.slice(start, start + SALES_BY_PRODUCT_PAGE_SIZE);
   }, [salesByProduct, salesByProductPage]);
 
-  const paginatedSalesByCategory = useMemo(() => {
-    const start = (salesByCategoryPage - 1) * SALES_BY_CATEGORY_PAGE_SIZE;
-    return salesByCategory.slice(start, start + SALES_BY_CATEGORY_PAGE_SIZE);
-  }, [salesByCategory, salesByCategoryPage]);
-
-  const paginatedSalesByWaiter = useMemo(() => {
-    const start = (salesByWaiterPage - 1) * SALES_BY_WAITER_PAGE_SIZE;
-    return salesByWaiter.slice(start, start + SALES_BY_WAITER_PAGE_SIZE);
-  }, [salesByWaiter, salesByWaiterPage]);
-
   const paginatedAdjustmentsByMonth = useMemo(() => {
     const start = (adjustmentsMonthlyPage - 1) * ADJUSTMENTS_MONTHLY_PAGE_SIZE;
     return salesAdjustmentsByMonth.slice(
@@ -593,7 +401,7 @@ export default function Sales() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-body text-sm">Ventas registradas</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
@@ -604,12 +412,6 @@ export default function Sales() {
           <p className="text-body text-sm">Total vendido</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
             {formatMoney(totalSalesValue)}
-          </p>
-        </div>
-        <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
-          <p className="text-body text-sm">Items vendidos</p>
-          <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
-            {formatQty(totalItemsSold)}
           </p>
         </div>
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
@@ -664,7 +466,6 @@ export default function Sales() {
                 <TableHead>Venta</TableHead>
                 <TableHead>Pedido</TableHead>
                 <TableHead>Fecha</TableHead>
-                <TableHead>Factura electronica</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Cortesías</TableHead>
                 <TableHead>Descuentos</TableHead>
@@ -688,108 +489,6 @@ export default function Sales() {
                     </TableCell>
                     <TableCell>#{sale.order_id}</TableCell>
                     <TableCell>{formatDate(sale.created_at)}</TableCell>
-                    <TableCell>
-                      {sale.electronic_invoice_status === "issued" ? (
-                        <div className="space-y-1">
-                          <p className="text-success text-xs font-medium">
-                            Emitida
-                            {sale.electronic_invoice_number
-                              ? ` #${sale.electronic_invoice_number}`
-                              : ""}
-                          </p>
-                          {sale.electronic_invoice_cufe ? (
-                            <p
-                              className="text-body max-w-[220px] truncate text-[11px]"
-                              title={sale.electronic_invoice_cufe}
-                            >
-                              CUFE: {sale.electronic_invoice_cufe}
-                            </p>
-                          ) : null}
-                          {sale.electronic_invoice_qr_url ? (
-                            <a
-                              href={sale.electronic_invoice_qr_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-medium text-primary hover:underline"
-                            >
-                              Ver FE
-                            </a>
-                          ) : null}
-                          <a
-                            href={`/api/factus/sales/${sale.id}/document`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block text-xs font-medium text-primary hover:underline"
-                          >
-                            Descargar PDF
-                          </a>
-                          {sale.electronic_invoice_email_status === "sent" ? (
-                            <p
-                              className="text-success max-w-[220px] truncate text-[11px]"
-                              title={
-                                sale.electronic_invoice_email_address ?? ""
-                              }
-                            >
-                              Correo enviado
-                              {sale.electronic_invoice_email_address
-                                ? `: ${sale.electronic_invoice_email_address}`
-                                : ""}
-                            </p>
-                          ) : sale.electronic_invoice_email_status ===
-                            "failed" ? (
-                            <p
-                              className="text-danger max-w-[220px] truncate text-[11px]"
-                              title={sale.electronic_invoice_email_error ?? ""}
-                            >
-                              Correo fallido
-                            </p>
-                          ) : sale.electronic_invoice_email_status ===
-                            "requested" ? (
-                            <p
-                              className="text-body max-w-[220px] truncate text-[11px]"
-                              title={
-                                sale.electronic_invoice_email_address ?? ""
-                              }
-                            >
-                              Correo solicitado a Factus
-                              {sale.electronic_invoice_email_address
-                                ? `: ${sale.electronic_invoice_email_address}`
-                                : ""}
-                            </p>
-                          ) : (
-                            <p className="text-body text-[11px]">
-                              Correo no solicitado
-                            </p>
-                          )}
-                          {sale.electronic_invoice_environment === "sandbox" ? (
-                            <p className="text-body text-[11px]">
-                              Reenvio manual no disponible en sandbox.
-                            </p>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void handleResendEmail(sale)}
-                              disabled={sendingEmailSaleId === sale.id}
-                              className="rounded border border-stroke px-2 py-1 text-[11px] font-medium text-black hover:bg-gray-2 disabled:opacity-60 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                            >
-                              {sendingEmailSaleId === sale.id
-                                ? "Enviando..."
-                                : "Reenviar correo"}
-                            </button>
-                          )}
-                        </div>
-                      ) : sale.electronic_invoice_status === "failed" ? (
-                        <span className="text-danger text-xs font-medium">
-                          Fallida
-                        </span>
-                      ) : sale.electronic_invoice_status === "pending" ? (
-                        <span className="text-warning text-xs font-medium">
-                          Pendiente
-                        </span>
-                      ) : (
-                        <span className="text-body text-xs">No emitida</span>
-                      )}
-                    </TableCell>
                     <TableCell>{formatQty(itemsCount)}</TableCell>
                     <TableCell>{formatCount(sale.courtesy_count)}</TableCell>
                     <TableCell>{formatCount(sale.discount_count)}</TableCell>
@@ -817,54 +516,6 @@ export default function Sales() {
             }
           />
         ) : null}
-      </div>
-
-      <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-        <div className="mb-4">
-          <h3 className="text-xl font-semibold text-black dark:text-white">
-            Egresos por compras
-          </h3>
-          <p className="text-body text-sm">
-            Compras de inventario y utensilios registradas en el sistema.
-          </p>
-        </div>
-
-        {loading ? (
-          <p className="text-body text-sm">Cargando egresos...</p>
-        ) : errorMessage ? (
-          <p className="text-danger text-sm">{errorMessage}</p>
-        ) : purchases.length === 0 ? (
-          <p className="text-body text-sm">No hay compras registradas.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Compra</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Proveedor</TableHead>
-                <TableHead className="text-right">Monto gastado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {purchases.map((purchase) => (
-                <TableRow key={purchase.id}>
-                  <TableCell className="font-medium text-black dark:text-white">
-                    #{purchase.id}
-                  </TableCell>
-                  <TableCell>
-                    {formatDate(
-                      purchase.purchased_at ?? purchase.received_at ?? purchase.created_at,
-                    )}
-                  </TableCell>
-                  <TableCell>{purchase.supplier_name ?? "Sin proveedor"}</TableCell>
-                  <TableCell className="text-right font-semibold text-black dark:text-white">
-                    {formatMoney(purchase.total_cost)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -927,121 +578,6 @@ export default function Sales() {
             />
           ) : null}
         </div>
-
-        <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-xl font-semibold text-black dark:text-white">
-                Ventas por categoria
-              </h3>
-              <p className="text-body text-sm">
-                Acumulado por categoria del menu.
-              </p>
-            </div>
-            <TimeFilterSelect
-              value={salesByCategoryFilter}
-              onChange={setSalesByCategoryFilter}
-            />
-          </div>
-          {loading ? (
-            <p className="text-body text-sm">Cargando resumen...</p>
-          ) : salesByCategory.length === 0 ? (
-            <p className="text-body text-sm">No hay datos para mostrar.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Cantidad</TableHead>
-                  <TableHead>Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedSalesByCategory.map((row) => (
-                  <TableRow key={row.category}>
-                    <TableCell className="font-medium text-black dark:text-white">
-                      {row.category}
-                    </TableCell>
-                    <TableCell>{formatQty(row.quantity)}</TableCell>
-                    <TableCell className="font-semibold text-black dark:text-white">
-                      {formatMoney(row.total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {!loading ? (
-            <PaginationControls
-              page={salesByCategoryPage}
-              totalPages={salesByCategoryTotalPages}
-              onPageChange={(nextPage) =>
-                setSalesByCategoryPage(
-                  Math.max(1, Math.min(nextPage, salesByCategoryTotalPages)),
-                )
-              }
-            />
-          ) : null}
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-xl font-semibold text-black dark:text-white">
-                Ventas por mesero
-              </h3>
-              <p className="text-body text-sm">
-                Acumulado por mesero asignado.
-              </p>
-            </div>
-            <TimeFilterSelect
-              value={salesByWaiterFilter}
-              onChange={setSalesByWaiterFilter}
-            />
-          </div>
-          {loading ? (
-            <p className="text-body text-sm">Cargando resumen...</p>
-          ) : salesByWaiter.length === 0 ? (
-            <p className="text-body text-sm">No hay datos para mostrar.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Mesero</TableHead>
-                  <TableHead>Ventas</TableHead>
-                  <TableHead>Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedSalesByWaiter.map((row) => (
-                  <TableRow key={row.waiter_id ?? row.name}>
-                    <TableCell className="font-medium text-black dark:text-white">
-                      {row.name}
-                    </TableCell>
-                    <TableCell>{formatQty(row.quantity)}</TableCell>
-                    <TableCell className="font-semibold text-black dark:text-white">
-                      {formatMoney(row.total)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {!loading ? (
-            <PaginationControls
-              page={salesByWaiterPage}
-              totalPages={salesByWaiterTotalPages}
-              onPageChange={(nextPage) =>
-                setSalesByWaiterPage(
-                  Math.max(1, Math.min(nextPage, salesByWaiterTotalPages)),
-                )
-              }
-            />
-          ) : null}
-        </div>
-
         <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>

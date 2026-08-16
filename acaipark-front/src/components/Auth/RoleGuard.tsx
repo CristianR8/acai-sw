@@ -4,7 +4,13 @@ import { useCurrentUserRole } from "@/hooks/use-current-user-role";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type PropsWithChildren } from "react";
 
-const ADMIN_ONLY_PATHS = ["/dashboard", "/personnel", "/sales"];
+const ADMIN_ONLY_PATHS = [
+  "/dashboard",
+  "/personnel",
+  "/sales",
+  "/inventory/purchases",
+  "/expenses",
+];
 
 export function RoleGuard({ children }: PropsWithChildren) {
   const pathname = usePathname();

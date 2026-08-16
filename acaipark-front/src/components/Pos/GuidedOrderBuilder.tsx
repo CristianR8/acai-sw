@@ -1,644 +1,105 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type GuidedOrder = {
-  name: string;
-  price: number;
-  note: string;
-};
+export type GuidedOrder = { name: string; menuItemName: string; price: number; note: string };
+type Option = { id: string; name: string; description: string; price: number; image: string; needsBase?: boolean; toppings: number; sauces: number };
 
-type Option = {
-  id: string;
-  name: string;
-  description: string;
-  price?: number;
-  image: string;
-};
+type Props = { onAddConfigured: (order: GuidedOrder) => void; editDraft?: GuidedOrder | null };
 
-type Props = {
-  onAddConfigured: (order: GuidedOrder) => void;
-};
+const money = (value: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(value);
+const EXTRA_PRICE = 3000;
 
-const formatMoney = (value: number) =>
-  new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-  }).format(value);
-
-const sizes: Option[] = [
-  {
-    id: "vaso",
-    name: "Vaso",
-    description:
-      "Pequeño, mediano o grande. Ideal para disfrutarlo a tu ritmo.",
-    price: 16900,
-    image: "🥤",
-  },
-  {
-    id: "bowl",
-    name: "Bowl",
-    description: "Una porción generosa para combinar más toppings y compartir.",
-    price: 29900,
-    image: "🍨",
-  },
-  {
-    id: "cono",
-    name: "Cono",
-    description: "Crocante, práctico y perfecto para un antojo rápido.",
-    price: 9900,
-    image: "🍦",
-  },
+const products: Option[] = [
+  { id: "vaso", name: "Vaso", description: "Elige el tamaño que prefieras.", price: 0, image: "🥤", needsBase: true, toppings: 0, sauces: 0 },
+  { id: "bowl", name: "Bowl", description: "Una porción generosa.", price: 29900, image: "🍨", needsBase: true, toppings: 5, sauces: 1 },
+  { id: "cono", name: "Cono", description: "Crocante y práctico.", price: 9900, image: "🍦", needsBase: true, toppings: 0, sauces: 1 },
+  { id: "cafe", name: "Café 7 oz", description: "Café listo para servir.", price: 0, image: "☕", toppings: 0, sauces: 0 },
+  { id: "fresas", name: "Fresas vaso 12 oz", description: "Fresas con una combinación a elección.", price: 17900, image: "🍓", toppings: 1, sauces: 1 },
 ];
 
-const bases: Option[] = [
-  {
-    id: "acai",
-    name: "Açaí",
-    description: "Frutal, intenso y refrescante.",
-    image: "🫐",
-  },
-  {
-    id: "yogurt",
-    name: "Yogurt griego",
-    description: "Cremoso, suave y con un toque naturalmente ácido.",
-    image: "🥣",
-  },
-  {
-    id: "cool-mix",
-    name: "Cool mix",
-    description: "Mitad açaí, mitad yogurt griego.",
-    image: "🍇",
-  },
+const cupSizes: Option[] = [
+  { id: "8oz", name: "Vaso 8 oz", description: "Pequeño", price: 16900, image: "🥤", toppings: 2, sauces: 1 },
+  { id: "12oz", name: "Vaso 12 oz", description: "Mediano", price: 21900, image: "🥤", toppings: 3, sauces: 1 },
+  { id: "16oz", name: "Vaso 16 oz", description: "Grande", price: 26900, image: "🥤", toppings: Number.POSITIVE_INFINITY, sauces: Number.POSITIVE_INFINITY },
 ];
 
-const toppings: Option[] = [
-  {
-    id: "banano",
-    name: "Banano",
-    description: "Dulce y cremoso.",
-    image: "🍌",
-  },
-  {
-    id: "fresa",
-    name: "Fresa",
-    description: "Fresca y ligeramente ácida.",
-    image: "🍓",
-  },
-  {
-    id: "mango",
-    name: "Mango",
-    description: "Tropical y jugoso.",
-    image: "🥭",
-  },
-  {
-    id: "leche",
-    name: "Leche en polvo",
-    description: "Cremosa y suave.",
-    image: "🥛",
-  },
-  {
-    id: "granola",
-    name: "Granola",
-    description: "Crocante y tostada.",
-    image: "🌾",
-  },
-  {
-    id: "avena",
-    name: "Avena",
-    description: "Textura y energía.",
-    image: "🌿",
-  },
-  {
-    id: "almendras",
-    name: "Almendras",
-    description: "Crocantes y delicadas.",
-    image: "🌰",
-  },
-  {
-    id: "oreo",
-    name: "Oreo",
-    description: "Un toque de chocolate.",
-    image: "🍪",
-  },
-  {
-    id: "mani",
-    name: "Maní",
-    description: "Tostado y lleno de sabor.",
-    image: "🥜",
-  },
-  {
-    id: "arandanos",
-    name: "Arándanos",
-    description: "Pequeños, dulces y frescos.",
-    image: "🫐",
-  },
-  {
-    id: "kiwi",
-    name: "Kiwi",
-    description: "Ácido y refrescante.",
-    image: "🥝",
-  },
-  {
-    id: "cereza",
-    name: "Cereza",
-    description: "Dulce y brillante.",
-    image: "🍒",
-  },
-  {
-    id: "durazno",
-    name: "Durazno",
-    description: "Suave y aromático.",
-    image: "🍑",
-  },
-  {
-    id: "coco",
-    name: "Coco deshidratado",
-    description: "Tropical y delicado.",
-    image: "🥥",
-  },
-  {
-    id: "chia",
-    name: "Chía pudín",
-    description: "Cremosa y nutritiva.",
-    image: "🫘",
-  },
-  {
-    id: "choco-granola",
-    name: "Granola chocolate",
-    description: "Crocante y chocolata.",
-    image: "🍫",
-  },
+const bases = [
+  { id: "acai", name: "Açaí", description: "Frutal, intenso y refrescante.", image: "🫐" },
+  { id: "yogurt", name: "Yogurt griego", description: "Cremoso y suave.", image: "🥣" },
+  { id: "cool-mix", name: "Cool mix", description: "Mitad açaí, mitad yogurt griego.", image: "🍇" },
 ];
 
-const sauces: Option[] = [
-  {
-    id: "chocolate",
-    name: "Chocolate",
-    description: "Intenso y sedoso.",
-    price: 3000,
-    image: "🍫",
-  },
-  {
-    id: "condensada",
-    name: "Leche condensada",
-    description: "Dulce y cremosa.",
-    price: 3000,
-    image: "🥛",
-  },
-  {
-    id: "blanco",
-    name: "Chocolate blanco",
-    description: "Suave y dulce.",
-    price: 3000,
-    image: "🤍",
-  },
-  {
-    id: "mani-salsa",
-    name: "Mantequilla de maní",
-    description: "Tostada y cremosa.",
-    price: 3000,
-    image: "🥜",
-  },
-  {
-    id: "arequipe",
-    name: "Arequipe sin azúcar",
-    description: "Dulce y ligero.",
-    price: 3000,
-    image: "🍯",
-  },
-  {
-    id: "pistacho",
-    name: "Pistacho",
-    description: "Aromático y delicado.",
-    price: 3000,
-    image: "💚",
-  },
-  {
-    id: "frutos-rojos",
-    name: "Frutos rojos",
-    description: "Ácidos y frescos.",
-    price: 3000,
-    image: "🍓",
-  },
-  {
-    id: "miel",
-    name: "Miel",
-    description: "Dulzor natural.",
-    price: 3000,
-    image: "🍯",
-  },
-  {
-    id: "almendras-salsa",
-    name: "Mantequilla de almendras",
-    description: "Suave y tostada.",
-    price: 3000,
-    image: "🌰",
-  },
-];
+const toppings = [
+  ["Banano", "🍌"], ["Fresa", "🍓"], ["Mango", "🥭"], ["Leche en polvo", "🥛"],
+  ["Granola", "🌾"], ["Avena", "🌿"], ["Almendras", "🌰"], ["Oreo", "🍪"],
+  ["Maní", "🥜"], ["Arándanos", "🫐"], ["Kiwi", "🥝"], ["Cereza", "🍒"],
+  ["Durazno", "🍑"], ["Coco deshidratado", "🥥"], ["Chía pudín", "🫘"], ["Granola chocolate", "🍫"],
+].map(([name, image], index) => ({ id: `t${index}`, name, image }));
+const sauces = [
+  ["Chocolate", "🍫"], ["Leche condensada", "🥛"], ["Chocolate blanco", "🤍"],
+  ["Mantequilla de maní", "🥜"], ["Arequipe sin azúcar", "🍮"], ["Pistacho", "💚"],
+  ["Frutos rojos", "🍓"], ["Miel", "🍯"], ["Mantequilla de almendras", "🌰"],
+].map(([name, image], index) => ({ id: `s${index}`, name, image }));
 
-const seasonal: Option[] = [
-  {
-    id: "proteina",
-    name: "Proteína limpia",
-    description: "20 g para complementar tu bowl.",
-    price: 5000,
-    image: "💪",
-  },
-];
-
-function OptionCard({
-  option,
-  selected,
-  onClick,
-  multi = false,
-}: {
-  option: Option;
-  selected: boolean;
-  onClick: () => void;
-  multi?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group relative flex min-h-[178px] flex-col overflow-hidden rounded-2xl border p-3 text-left transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
-        selected
-          ? "border-primary bg-primary/10 shadow-md ring-2 ring-primary/30"
-          : "border-stroke bg-gray-1 hover:border-primary/50 dark:border-dark-3 dark:bg-dark-2"
-      }`}
-      aria-pressed={selected}
-    >
-      <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-xl bg-gray-2 text-5xl dark:bg-dark-3">
-        {option.image.startsWith("/") ? (
-          <img
-            src={option.image}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          option.image
-        )}
-        {selected ? (
-          <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-sm text-white">
-            ✓
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-3 flex items-start justify-between gap-2">
-        <span className="font-bold text-dark dark:text-white">
-          {option.name}
-        </span>
-        {multi ? (
-          <span className="text-xs font-semibold text-primary">
-            {selected ? "Añadido" : "Elegir"}
-          </span>
-        ) : null}
-      </div>
-      <span className="text-body-color mt-1 text-xs leading-5 dark:text-dark-6">
-        {option.description}
-      </span>
-      {option.price ? (
-        <span className="mt-auto pt-2 text-xs font-bold text-secondary">
-          + {formatMoney(option.price)}
-        </span>
-      ) : null}
-    </button>
-  );
+function Card({ name, description, image, selected, onClick }: { name: string; description: string; image: string; selected: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className={`relative flex min-h-[150px] flex-col rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${selected ? "border-primary bg-primary/10 ring-2 ring-primary/25" : "border-stroke bg-gray-1 dark:border-dark-3 dark:bg-dark-2"}`}><div className="flex h-20 items-center justify-center rounded-xl bg-gray-2 text-4xl dark:bg-dark-3">{image}</div><p className="mt-3 font-bold text-dark dark:text-white">{name}</p><p className="mt-1 text-xs text-body">{description}</p>{selected ? <span className="absolute right-3 top-3 rounded-full bg-primary px-2 py-1 text-xs text-white">✓</span> : null}</button>;
 }
 
-export default function GuidedOrderBuilder({ onAddConfigured }: Props) {
+export default function GuidedOrderBuilder({ onAddConfigured, editDraft = null }: Props) {
   const [step, setStep] = useState(1);
-  const [sizeId, setSizeId] = useState<string | null>(null);
+  const [productId, setProductId] = useState<string | null>(null);
+  const [cupSizeId, setCupSizeId] = useState<string | null>(null);
   const [baseId, setBaseId] = useState<string | null>(null);
   const [toppingIds, setToppingIds] = useState<string[]>([]);
   const [sauceIds, setSauceIds] = useState<string[]>([]);
-  const [seasonalIds, setSeasonalIds] = useState<string[]>([]);
-  const [parfait, setParfait] = useState<string | null>(null);
 
-  const selectedSize = sizes.find((option) => option.id === sizeId);
-  const selectedBase = bases.find((option) => option.id === baseId);
-  const selectedToppings = toppings.filter((option) =>
-    toppingIds.includes(option.id),
-  );
-  const selectedSauces = sauces.filter((option) =>
-    sauceIds.includes(option.id),
-  );
-  const selectedSeasonal = seasonal.filter((option) =>
-    seasonalIds.includes(option.id),
-  );
-  const hasStepThreeSelection = Boolean(
-    toppingIds.length || sauceIds.length || seasonalIds.length || parfait,
-  );
-  const canAdvance =
-    step === 1
-      ? Boolean(sizeId)
-      : step === 2
-        ? Boolean(baseId)
-        : hasStepThreeSelection;
+  const product = products.find((item) => item.id === productId);
+  const cupSize = cupSizes.find((item) => item.id === cupSizeId);
+  const base = bases.find((item) => item.id === baseId);
+  const needsBase = Boolean(product?.needsBase);
+  const configuredProduct = productId === "vaso" ? cupSize : product;
+  const allowedToppings = configuredProduct?.toppings ?? 0;
+  const allowedSauces = configuredProduct?.sauces ?? 0;
+  const selectedToppings = toppings.filter((item) => toppingIds.includes(item.id));
+  const selectedSauces = sauces.filter((item) => sauceIds.includes(item.id));
+  const total = useMemo(() => (configuredProduct?.price ?? 0) + Math.max(0, selectedToppings.length - allowedToppings) * EXTRA_PRICE + Math.max(0, selectedSauces.length - allowedSauces) * EXTRA_PRICE, [allowedSauces, allowedToppings, configuredProduct?.price, selectedSauces.length, selectedToppings.length]);
+  const readyForProduct = Boolean(product && (product.id !== "vaso" || cupSize));
 
-  const total = useMemo(() => {
-    return (
-      (selectedSize?.price ?? 0) +
-      selectedToppings.length * 3000 +
-      selectedSauces.reduce((sum, option) => sum + (option.price ?? 0), 0) +
-      selectedSeasonal.reduce((sum, option) => sum + (option.price ?? 0), 0) +
-      (parfait === "mediano" ? 21900 : parfait === "grande" ? 26900 : 0)
-    );
-  }, [
-    parfait,
-    selectedSeasonal,
-    selectedSauces,
-    selectedSize,
-    selectedToppings.length,
-  ]);
+  useEffect(() => {
+    if (!editDraft) return;
+    const configuredName = editDraft.note.match(/Configurado:\s*([^|]+)/i)?.[1]?.trim() ?? editDraft.name;
+    const normalized = configuredName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const nextProductId = normalized.includes("vaso") ? "vaso" : normalized.includes("bowl") ? "bowl" : normalized.includes("cono") ? "cono" : normalized.includes("cafe") ? "cafe" : "fresas";
+    const baseName = editDraft.note.match(/Base:\s*([^|]+)/i)?.[1]?.trim();
+    const toppingNames = editDraft.note.match(/Toppings:\s*([^|]+)/i)?.[1]?.split(",").map((name) => name.trim()) ?? [];
+    const sauceNames = editDraft.note.match(/Salsas:\s*([^|]+)/i)?.[1]?.split(",").map((name) => name.trim()) ?? [];
+    setProductId(nextProductId);
+    setCupSizeId(nextProductId === "vaso" ? cupSizes.find((item) => item.name === configuredName)?.id ?? null : null);
+    setBaseId(bases.find((item) => item.name === baseName)?.id ?? null);
+    setToppingIds(toppings.filter((item) => toppingNames.includes(item.name)).map((item) => item.id));
+    setSauceIds(sauces.filter((item) => sauceNames.includes(item.name)).map((item) => item.id));
+    setStep(nextProductId === "cafe" ? 1 : nextProductId === "vaso" || nextProductId === "bowl" || nextProductId === "cono" ? 3 : 2);
+  }, [editDraft]);
 
-  function toggleId(
-    ids: string[],
-    id: string,
-    setter: (value: string[]) => void,
-  ) {
-    setter(
-      ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id],
-    );
+  function reset() { setStep(1); setProductId(null); setCupSizeId(null); setBaseId(null); setToppingIds([]); setSauceIds([]); }
+  function toggle(id: string, selected: string[], setter: (value: string[]) => void) { setter(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]); }
+  function menuItemName() { return productId === "vaso" ? "Açaí personalizado" : productId === "bowl" ? "Bowl personalizado" : productId === "cono" ? "Cono personalizado" : productId === "cafe" ? "Café 7 oz" : "Fresas vaso 12 oz"; }
+  function submit() {
+    if (!configuredProduct || (needsBase && !base)) return;
+    onAddConfigured({ name: configuredProduct.name, menuItemName: menuItemName(), price: total, note: [`Configurado: ${configuredProduct.name}`, base ? `Base: ${base.name}` : "", selectedToppings.length ? `Toppings: ${selectedToppings.map((item) => item.name).join(", ")}` : "", selectedSauces.length ? `Salsas: ${selectedSauces.map((item) => item.name).join(", ")}` : ""].filter(Boolean).join(" | ") });
+    reset();
   }
+  function selectProduct(next: Option) { setProductId(next.id); setCupSizeId(null); setBaseId(null); setToppingIds([]); setSauceIds([]); }
+  const stepLabels = needsBase ? ["Producto", "Base", "Toppings y salsas"] : ["Producto", "Toppings y salsas"];
+  const currentIndex = needsBase ? step - 1 : step === 1 ? 0 : 1;
 
-  function submitConfiguration() {
-    if (!selectedSize || !selectedBase || !canAdvance) return;
-    const chosenToppings = selectedToppings
-      .map((option) => option.name)
-      .join(", ");
-    const chosenSauces = selectedSauces.map((option) => option.name).join(", ");
-    const chosenSeasonal = selectedSeasonal
-      .map((option) => option.name)
-      .join(", ");
-    const parfaitLabel =
-      parfait === "mediano"
-        ? "Parfait mediano"
-        : parfait === "grande"
-          ? "Parfait grande"
-          : "";
-    onAddConfigured({
-      name: `${selectedSize.name} ${selectedBase.name}`,
-      price: total,
-      note: [
-        `Configurado: ${selectedSize.name} · Base: ${selectedBase.name}`,
-        chosenToppings ? `Toppings: ${chosenToppings}` : "",
-        chosenSauces ? `Salsas: ${chosenSauces}` : "",
-        chosenSeasonal ? `Temporada: ${chosenSeasonal}` : "",
-        parfaitLabel,
-      ]
-        .filter(Boolean)
-        .join(" | "),
-    });
-    setStep(1);
-    setSizeId(null);
-    setBaseId(null);
-    setToppingIds([]);
-    setSauceIds([]);
-    setSeasonalIds([]);
-    setParfait(null);
-  }
-
-  const steps = [
-    { id: 1, label: "Elige el tamaño", done: Boolean(sizeId) },
-    { id: 2, label: "Elige la base", done: Boolean(baseId) },
-    { id: 3, label: "Toppings y salsas", done: hasStepThreeSelection },
-  ];
-
-  return (
-    <div className="rounded-2xl border border-stroke bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark sm:p-6">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.25em] text-primary">
-            Tu creación
-          </p>
-          <h4 className="mt-1 text-2xl font-black text-dark dark:text-white">
-            Arma tu bowl
-          </h4>
-          <p className="text-body-color mt-1 text-sm dark:text-dark-6">
-            Completa cada paso para crear una combinación única.
-          </p>
-        </div>
-        <div className="rounded-xl bg-secondary px-3 py-2 text-right text-white">
-          <div className="text-[10px] uppercase tracking-wider text-white/70">
-            Total estimado
-          </div>
-          <div className="text-lg font-black">{formatMoney(total)}</div>
-        </div>
-      </div>
-
-      <div className="mb-6 grid grid-cols-3 gap-2">
-        {steps.map((item) => {
-          const unlocked = item.id === 1 || steps[item.id - 2].done;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              disabled={!unlocked}
-              onClick={() => setStep(item.id)}
-              className={`relative rounded-xl border px-2 py-3 text-left transition ${
-                step === item.id
-                  ? "border-primary bg-primary text-white shadow-md"
-                  : item.done
-                    ? "border-secondary/30 bg-secondary/10 text-secondary"
-                    : "text-body-color border-stroke bg-gray-1 dark:border-dark-3 dark:bg-dark-2 dark:text-dark-6"
-              } ${!unlocked ? "cursor-not-allowed opacity-50" : "hover:-translate-y-0.5"}`}
-            >
-              <span className="block text-[10px] font-black uppercase tracking-wider">
-                Paso {item.id}
-              </span>
-              <span className="mt-1 block text-xs font-bold sm:text-sm">
-                {item.label}
-              </span>
-              {item.done ? (
-                <span className="absolute right-2 top-2 text-xs">✓</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
-      {step === 1 ? (
-        <section>
-          <div className="mb-3 flex items-end justify-between gap-2">
-            <div>
-              <h5 className="text-lg font-black text-dark dark:text-white">
-                Paso 1 · Elige el tamaño
-              </h5>
-              <p className="text-body-color text-xs dark:text-dark-6">
-                Vaso, bowl o cono.
-              </p>
-            </div>
-            <span className="text-xs font-bold text-primary">
-              Selecciona una opción
-            </span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {sizes.map((option) => (
-              <OptionCard
-                key={option.id}
-                option={option}
-                selected={sizeId === option.id}
-                onClick={() => setSizeId(option.id)}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {step === 2 ? (
-        <section>
-          <div className="mb-3">
-            <h5 className="text-lg font-black text-dark dark:text-white">
-              Paso 2 · Elige la base
-            </h5>
-            <p className="text-body-color text-xs dark:text-dark-6">
-              Elige el sabor que será el corazón de tu pedido.
-            </p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {bases.map((option) => (
-              <OptionCard
-                key={option.id}
-                option={option}
-                selected={baseId === option.id}
-                onClick={() => setBaseId(option.id)}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {step === 3 ? (
-        <section className="space-y-5">
-          <div>
-            <h5 className="text-lg font-black text-dark dark:text-white">
-              Paso 3 · Elige toppings y salsas
-            </h5>
-            <p className="text-body-color text-xs dark:text-dark-6">
-              Puedes elegir varios. Selecciona al menos uno para continuar.
-            </p>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h6 className="font-black text-dark dark:text-white">Toppings</h6>
-              <span className="text-xs font-bold text-secondary">
-                3.000 c/u
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {toppings.map((option) => (
-                <OptionCard
-                  key={option.id}
-                  option={option}
-                  multi
-                  selected={toppingIds.includes(option.id)}
-                  onClick={() => toggleId(toppingIds, option.id, setToppingIds)}
-                />
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h6 className="font-black text-dark dark:text-white">Salsas</h6>
-              <span className="text-xs font-bold text-secondary">
-                3.000 c/u
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {sauces.map((option) => (
-                <OptionCard
-                  key={option.id}
-                  option={option}
-                  multi
-                  selected={sauceIds.includes(option.id)}
-                  onClick={() => toggleId(sauceIds, option.id, setSauceIds)}
-                />
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h6 className="font-black text-dark dark:text-white">
-                Temporada y parfaits
-              </h6>
-              <span className="text-xs font-bold text-secondary">Opcional</span>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {seasonal.map((option) => (
-                <OptionCard
-                  key={option.id}
-                  option={option}
-                  multi
-                  selected={seasonalIds.includes(option.id)}
-                  onClick={() =>
-                    toggleId(seasonalIds, option.id, setSeasonalIds)
-                  }
-                />
-              ))}
-              <OptionCard
-                option={{
-                  id: "parfait-mediano",
-                  name: "Parfait mediano",
-                  description: "2 toppings y 1 salsa.",
-                  price: 21900,
-                  image: "🍧",
-                }}
-                selected={parfait === "mediano"}
-                onClick={() =>
-                  setParfait(parfait === "mediano" ? null : "mediano")
-                }
-              />
-              <OptionCard
-                option={{
-                  id: "parfait-grande",
-                  name: "Parfait grande",
-                  description: "3 toppings y 1 salsa.",
-                  price: 26900,
-                  image: "🍨",
-                }}
-                selected={parfait === "grande"}
-                onClick={() =>
-                  setParfait(parfait === "grande" ? null : "grande")
-                }
-              />
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      <div className="mt-6 flex flex-wrap justify-between gap-2 border-t border-stroke pt-4 dark:border-dark-3">
-        <button
-          type="button"
-          disabled={step === 1}
-          onClick={() => setStep((current) => Math.max(1, current - 1))}
-          className="rounded-xl border border-stroke bg-white px-4 py-2 text-sm font-bold text-dark transition hover:bg-gray-2 disabled:cursor-not-allowed disabled:opacity-40 dark:border-dark-3 dark:bg-dark-2 dark:text-white"
-        >
-          Atrás
-        </button>
-        {step < 3 ? (
-          <button
-            type="button"
-            disabled={!canAdvance}
-            onClick={() => setStep((current) => current + 1)}
-            className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Continuar al paso {step + 1}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={!canAdvance}
-            onClick={submitConfiguration}
-            className="rounded-xl bg-secondary px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-secondary/90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Agregar configuración al pedido
-          </button>
-        )}
-      </div>
-    </div>
-  );
+  return <div className="rounded-2xl border border-stroke bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark sm:p-6">
+    <div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.25em] text-primary">Tu creación</p><h4 className="mt-1 text-2xl font-black text-dark dark:text-white">Arma tu pedido</h4><p className="mt-1 text-sm text-body">Elige el producto y personalízalo.</p></div><div className="rounded-xl bg-secondary px-3 py-2 text-right text-white"><p className="text-[10px] uppercase text-white/70">Total estimado</p><p className="text-lg font-black">{money(total)}</p></div></div>
+    <div className={`mb-6 grid gap-2 ${needsBase ? "grid-cols-3" : "grid-cols-2"}`}>{stepLabels.map((label, index) => <div key={label} className={`rounded-xl border px-3 py-2 text-sm font-bold ${currentIndex === index ? "border-primary bg-primary text-white" : "border-stroke text-body dark:border-dark-3"}`}>Paso {index + 1} · {label}</div>)}</div>
+    {step === 1 ? <section><h5 className="mb-3 text-lg font-black text-dark dark:text-white">Paso 1 · Elige el producto</h5><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{products.map((item) => <Card key={item.id} {...item} selected={productId === item.id} onClick={() => selectProduct(item)} />)}</div>{productId === "vaso" ? <div className="mt-5"><h6 className="mb-3 font-black text-dark dark:text-white">Elige el tamaño del vaso</h6><div className="grid gap-3 md:grid-cols-3">{cupSizes.map((item) => <Card key={item.id} {...item} selected={cupSizeId === item.id} onClick={() => setCupSizeId(item.id)} />)}</div></div> : null}</section> : null}
+    {step === 2 && needsBase ? <section><h5 className="mb-3 text-lg font-black text-dark dark:text-white">Paso 2 · Elige la base</h5><div className="grid gap-3 md:grid-cols-3">{bases.map((item) => <Card key={item.id} {...item} selected={baseId === item.id} onClick={() => setBaseId(item.id)} />)}</div></section> : null}
+    {step === 3 || (!needsBase && step === 2) ? <section className="space-y-5"><div><h5 className="text-lg font-black text-dark dark:text-white">Toppings y salsas</h5><p className="text-xs text-body">Personaliza tu producto.</p></div><div><h6 className="mb-2 font-black text-dark dark:text-white">Toppings</h6><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{toppings.map((item) => <Card key={item.id} name={item.name} description="" image={item.image} selected={toppingIds.includes(item.id)} onClick={() => toggle(item.id, toppingIds, setToppingIds)} />)}</div></div><div><h6 className="mb-2 font-black text-dark dark:text-white">Salsas</h6><div className="grid grid-cols-2 gap-3 md:grid-cols-3">{sauces.map((item) => <Card key={item.id} name={item.name} description="" image={item.image} selected={sauceIds.includes(item.id)} onClick={() => toggle(item.id, sauceIds, setSauceIds)} />)}</div></div></section> : null}
+    <div className="mt-6 flex justify-between border-t border-stroke pt-4 dark:border-dark-3"><button type="button" disabled={step === 1} onClick={() => setStep(needsBase && step === 3 ? 2 : 1)} className="rounded-xl border border-stroke px-4 py-2 text-sm font-bold disabled:opacity-40 dark:border-dark-3 dark:text-white">Atrás</button>{step === 1 && productId === "cafe" ? <button type="button" onClick={submit} className="rounded-xl bg-secondary px-5 py-2 text-sm font-bold text-white">Agregar al pedido</button> : step === 1 ? <button type="button" disabled={!readyForProduct} onClick={() => setStep(needsBase ? 2 : 2)} className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white disabled:opacity-40">Continuar</button> : step === 2 && needsBase ? <button type="button" disabled={!base} onClick={() => setStep(3)} className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white disabled:opacity-40">Continuar</button> : <button type="button" onClick={submit} className="rounded-xl bg-secondary px-5 py-2 text-sm font-bold text-white">Agregar al pedido</button>}</div>
+  </div>;
 }

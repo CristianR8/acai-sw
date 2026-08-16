@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas
@@ -89,6 +89,7 @@ def _as_decimal(value: Decimal | int | str) -> Decimal:
 def list_products(
     active: bool | None = True,
     kind: schemas.InventoryProductKind | None = None,
+    purchased_only: bool = False,
     db_session: Session = Depends(db.get_db),
 ):
     query = db_session.query(models.InventoryProduct)
@@ -96,6 +97,8 @@ def list_products(
         query = query.filter(models.InventoryProduct.is_active == active)
     if kind is not None:
         query = query.filter(models.InventoryProduct.kind == kind.value)
+    if purchased_only:
+        query = query.filter(models.InventoryProduct.is_purchase_registered == True)  # noqa: E712
     return query.order_by(models.InventoryProduct.name.asc()).all()
 
 
@@ -393,6 +396,11 @@ def update_supplier(
 def create_purchase(
     payload: schemas.PurchaseCreate, db_session: Session = Depends(db.get_db)
 ):
+    if payload.purchased_at and payload.purchased_at.date() > date.today():
+        raise HTTPException(
+            status_code=400,
+            detail="La fecha de compra no puede ser posterior al día actual",
+        )
     def resolve_supplier_id(supplier_id: int | None) -> int | None:
         if supplier_id is None:
             return None
@@ -452,6 +460,8 @@ def create_purchase(
 
     for item in payload.items:
         product = resolve_product(item)
+        # Inventory visible in the new module is sourced exclusively from purchases.
+        product.is_purchase_registered = True
         supplier_id = resolve_supplier_id(item.supplier_id)
         if supplier_id is not None:
             supplier_ids.add(supplier_id)
@@ -502,18 +512,36 @@ def create_purchase(
 
 
 @router.get("/purchases", response_model=list[schemas.PurchaseOut])
-def list_purchases(db_session: Session = Depends(db.get_db)):
-    return (
+def list_purchases(
+    history: str = Query(default="recent", pattern="^(recent|all)$"),
+    search: str | None = Query(default=None, max_length=200),
+    db_session: Session = Depends(db.get_db),
+):
+    query = (
         db_session.query(models.Purchase)
         .options(
             joinedload(models.Purchase.supplier),
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product),
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.supplier),
         )
-        .order_by(models.Purchase.id.desc())
-        .limit(200)
-        .all()
     )
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        query = (
+            query.outerjoin(models.Purchase.supplier)
+            .outerjoin(models.Purchase.items)
+            .outerjoin(models.PurchaseItem.product)
+            .filter(
+                or_(
+                    func.lower(models.Supplier.name).like(term),
+                    func.lower(models.InventoryProduct.name).like(term),
+                    cast(models.Purchase.id, String).like(term),
+                )
+            )
+            .distinct()
+        )
+    query = query.order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
+    return query.all() if history == "all" else query.limit(10).all()
 
 
 @router.get("/recipes/{menu_item_id}", response_model=schemas.RecipeOut)
@@ -903,6 +931,10 @@ def _xlsx_response(filename: str, build_workbook) -> Response:
 def export_inventory_xlsx(db_session: Session = Depends(db.get_db)):
     products = (
         db_session.query(models.InventoryProduct)
+        .filter(
+            models.InventoryProduct.is_active == True,  # noqa: E712
+            models.InventoryProduct.is_purchase_registered == True,  # noqa: E712
+        )
         .order_by(models.InventoryProduct.name.asc())
         .all()
     )
@@ -947,7 +979,36 @@ def export_purchases_xlsx(
     to_date: datetime | None = None,
     db_session: Session = Depends(db.get_db),
 ):
-    raise HTTPException(
-        status_code=410,
-        detail="Export a Excel de compras eliminado; usa el informe dentro del sistema (/inventory/purchases).",
+    query = (
+        db_session.query(models.Purchase)
+        .options(
+            joinedload(models.Purchase.supplier),
+            joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product),
+            joinedload(models.Purchase.items).joinedload(models.PurchaseItem.supplier),
+        )
+        .order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
     )
+    if from_date:
+        query = query.filter(models.Purchase.purchased_at >= from_date)
+    if to_date:
+        query = query.filter(models.Purchase.purchased_at <= to_date)
+    purchases = query.all()
+
+    def build(wb):
+        ws = wb.active
+        ws.title = "Compras"
+        ws.append(["Compra", "Fecha", "Proveedor", "Producto", "Cantidad", "Costo unitario", "Monto gastado"])
+        for purchase in purchases:
+            purchase_date = purchase.purchased_at or purchase.received_at or purchase.created_at
+            for item in purchase.items:
+                ws.append([
+                    purchase.id,
+                    purchase_date.isoformat() if purchase_date else None,
+                    item.supplier.name if item.supplier else purchase.supplier_name,
+                    item.product_name,
+                    float(item.quantity),
+                    float(item.unit_cost),
+                    float(item.line_total),
+                ])
+
+    return _xlsx_response("historial-compras.xlsx", build)

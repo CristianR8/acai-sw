@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { SearchIcon } from "@/assets/icons";
 
 type InventoryKind = "ingredient" | "material" | "recipe";
@@ -62,9 +61,8 @@ const RECIPE_UNIT_OPTIONS = [
   { value: "UND", label: "Unidad" },
 ];
 
-// El catálogo anterior se conserva en el código y en la base de datos,
-// pero la pantalla queda temporalmente vacía para iniciar el nuevo inventario.
-const INVENTORY_CATALOG_VISIBLE = false;
+// El catálogo refleja los productos e insumos registrados mediante compras.
+const INVENTORY_CATALOG_VISIBLE = true;
 
 function safeNumber(value: unknown) {
   const asNumber =
@@ -136,6 +134,13 @@ function normalizeSearchText(value: string) {
     .trim();
 }
 
+function localDateInputValue() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
 function normalizeRecipeIngredientName(value: string) {
   return normalizeSearchText(value);
 }
@@ -203,7 +208,7 @@ export default function Inventory({
     },
   ]);
   const [purchaseDate, setPurchaseDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
+    localDateInputValue(),
   );
   const [searchTerm, setSearchTerm] = useState("");
   const [submitStatus, setSubmitStatus] = useState<
@@ -223,7 +228,7 @@ export default function Inventory({
     setLoading(true);
     try {
       const response = await fetch(
-        `/api/inventory/products?kind=${encodeURIComponent(kind)}`,
+        `/api/inventory/products?kind=${encodeURIComponent(kind)}&purchased_only=true`,
         {
           cache: "no-store",
         },
@@ -354,7 +359,7 @@ export default function Inventory({
 
   function resetPurchaseForm() {
     const defaultUnit = tab === "ingredient" ? "gramos" : "";
-    setPurchaseDate(new Date().toISOString().slice(0, 10));
+    setPurchaseDate(localDateInputValue());
     setPurchaseItems([
       {
         mode: "existing",
@@ -887,27 +892,17 @@ export default function Inventory({
               >
                 Descargar Excel
               </a>
-              <Link
-                className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                href="/inventory/purchases"
-              >
-                Informe de compras
-              </Link>
             </>
           ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              if (tab === "recipe") {
-                openRecipeCreate();
-              } else {
-                openCreate();
-              }
-            }}
-            className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
-          >
-            {tab === "recipe" ? "Agregar receta" : "Agregar compra"}
-          </button>
+          {tab === "recipe" ? (
+            <button
+              type="button"
+              onClick={openRecipeCreate}
+              className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
+            >
+              Agregar receta
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -934,17 +929,6 @@ export default function Inventory({
         >
           Insumos
         </button>
-        <button
-          type="button"
-          onClick={() => setTab("recipe")}
-          className={
-            tab === "recipe"
-              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Recetas
-        </button>
         <div className="relative ml-auto w-full max-w-xs">
           <input
             value={searchTerm}
@@ -964,6 +948,7 @@ export default function Inventory({
               <input
                 type="date"
                 value={purchaseDate}
+                max={localDateInputValue()}
                 onChange={(event) => setPurchaseDate(event.target.value)}
                 className="rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
               />

@@ -57,8 +57,10 @@ export async function GET(request: Request) {
 
   const kind = requestUrl.searchParams.get("kind");
   const active = requestUrl.searchParams.get("active");
+  const purchasedOnly = requestUrl.searchParams.get("purchased_only");
   if (kind) backendUrl.searchParams.set("kind", kind);
   if (active) backendUrl.searchParams.set("active", active);
+  if (purchasedOnly) backendUrl.searchParams.set("purchased_only", purchasedOnly);
 
   let response: Response;
   try {

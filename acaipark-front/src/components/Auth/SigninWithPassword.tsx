@@ -84,7 +84,7 @@ export default function SigninWithPassword() {
       <InputGroup
         type="email"
         label="Correo electrónico"
-        className="mb-4 text-red-300 [&_input]:py-[15px]"
+        className="mb-4 [&_input]:py-[15px] [&_input]:text-white [&_input]:placeholder:text-white/60"
         placeholder="Ingresa tu correo electrónico"
         name="email"
         handleChange={handleChange}
@@ -95,7 +95,7 @@ export default function SigninWithPassword() {
       <InputGroup
         type="password"
         label="Contraseña"
-        className="mb-5 text-red-300 [&_input]:py-[15px]"
+        className="mb-5 [&_input]:py-[15px] [&_input]:text-white [&_input]:placeholder:text-white/60"
         placeholder="Ingresa tu contraseña"
         name="password"
         handleChange={handleChange}

@@ -15,11 +15,12 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import jsPDF from "jspdf";
+import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
-import { FaRegTrashAlt } from "react-icons/fa";
+import { FaRegEdit, FaRegTrashAlt } from "react-icons/fa";
 import { HiOutlineCash } from "react-icons/hi";
 import { RiProhibited2Line } from "react-icons/ri";
-import GuidedOrderBuilder from "@/components/Pos/GuidedOrderBuilder";
+import GuidedOrderBuilder, { type GuidedOrder } from "@/components/Pos/GuidedOrderBuilder";
 import { useCurrentUserRole } from "@/hooks/use-current-user-role";
 
 dayjs.extend(utc);
@@ -88,11 +89,17 @@ type Customer = {
   is_active: boolean;
 };
 
-type Waiter = {
-  id: number;
-  name: string;
-  is_active: boolean;
+type LoyaltyRegistration = {
+  token: string;
+  status: "pending" | "completed" | "expired";
+  customer_id?: number | null;
+  customer_name?: string | null;
+  loyalty_stamps?: number | null;
+  loyalty_rewards?: number | null;
+  loyalty_code?: string | null;
 };
+
+type PaymentMethod = "cash" | "card" | "transfer";
 
 type PosOrderItemCreate = {
   menu_item_id: number;
@@ -104,10 +111,11 @@ type PosOrderItemCreate = {
   note?: string | null;
 };
 
+type CartEditDraft = GuidedOrder & { cartItemId: number };
+
 type PosOrderOut = {
   id: number;
   table_id: number;
-  waiter_id?: number | null;
   sale_id?: number | null;
   status: string;
   electronic_invoice_status?: string | null;
@@ -192,6 +200,7 @@ const ORDER_STATUS_META: Record<
     label: "Entregado",
     className: "bg-[#219653]/[0.08] text-[#219653]",
   },
+  paid: { label: "Pagado", className: "bg-[#1F2937]/10 text-[#1F2937]" },
   closed: { label: "Pagado", className: "bg-[#1F2937]/10 text-[#1F2937]" },
   void: { label: "Anulado", className: "bg-[#D34053]/[0.12] text-[#D34053]" },
 };
@@ -382,6 +391,7 @@ export default function PosScreen() {
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [viewOrder, setViewOrder] = useState<PosOrderOut | null>(null);
   const [cart, setCart] = useState<Record<number, PosOrderItemCreate>>({});
+  const [guidedEditDraft, setGuidedEditDraft] = useState<CartEditDraft | null>(null);
   const [noteInput, setNoteInput] = useState("");
   const [clearFinishedStatus, setClearFinishedStatus] = useState<
     "idle" | "loading"
@@ -406,12 +416,12 @@ export default function PosScreen() {
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [customerSearchInput, setCustomerSearchInput] = useState("");
-  const [customerNameInput, setCustomerNameInput] = useState("");
-  const [customerDocumentInput, setCustomerDocumentInput] = useState("");
-  const [customerPhoneInput, setCustomerPhoneInput] = useState("");
-  const [customerEmailInput, setCustomerEmailInput] = useState("");
-  const [issueElectronicInvoice, setIssueElectronicInvoice] = useState(false);
+  const [loyaltyRegistration, setLoyaltyRegistration] =
+    useState<LoyaltyRegistration | null>(null);
+  const [loyaltyQrDataUrl, setLoyaltyQrDataUrl] = useState("");
   const [applyConsumptionTax, setApplyConsumptionTax] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [receivedAmountInput, setReceivedAmountInput] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
@@ -419,12 +429,7 @@ export default function PosScreen() {
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
-  const [waiterModalOpen, setWaiterModalOpen] = useState(false);
-  const [waiterOrder, setWaiterOrder] = useState<PosOrderOut | null>(null);
-  const [waiterList, setWaiterList] = useState<Waiter[]>([]);
-  const [loadingWaiters, setLoadingWaiters] = useState(false);
-  const [selectedWaiterId, setSelectedWaiterId] = useState("");
-  const [waiterStatus, setWaiterStatus] = useState<
+  const [deliveryStatus, setDeliveryStatus] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
     | { kind: "success"; message: string }
@@ -471,6 +476,14 @@ export default function PosScreen() {
     };
   }, [paymentOrder, applyConsumptionTax]);
 
+  const receivedAmount = Number.parseFloat(receivedAmountInput);
+  const paymentChange = paymentPreview
+    ? receivedAmount - paymentPreview.total
+    : null;
+  const hasEnoughCash =
+    Number.isFinite(receivedAmount) && paymentChange !== null && paymentChange >= 0;
+  const canCompletePayment = paymentMethod !== "cash" || hasEnoughCash;
+
   const activeOrders = useMemo(
     () => orders.filter((o) => !["closed", "void"].includes(o.status)),
     [orders],
@@ -495,17 +508,17 @@ export default function PosScreen() {
     doc.save(`pedido-${order.id}.pdf`);
   }
 
-  async function handleMarkOrderDelivered(orderId: number, waiterId: number) {
+  async function handleMarkOrderDelivered(orderId: number) {
     try {
-      setWaiterStatus({ kind: "loading" });
+      setDeliveryStatus({ kind: "loading" });
       const res = await fetch(`/api/pos/orders/${orderId}/deliver`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ delivered: true, waiter_id: waiterId }),
+        body: JSON.stringify({ delivered: true }),
       });
       const responsePayload = (await res.json().catch(() => null)) as any;
       if (!res.ok) {
-        setWaiterStatus({
+        setDeliveryStatus({
           kind: "error",
           message:
             (typeof responsePayload?.message === "string" &&
@@ -521,10 +534,10 @@ export default function PosScreen() {
           o.id === orderId ? (responsePayload as PosOrderOut) : o,
         ),
       );
-      setWaiterStatus({ kind: "success", message: "Pedido entregado." });
+      setDeliveryStatus({ kind: "success", message: "Pedido entregado." });
       return true;
     } catch {
-      setWaiterStatus({
+      setDeliveryStatus({
         kind: "error",
         message: "Error marcando el pedido como entregado.",
       });
@@ -536,9 +549,6 @@ export default function PosScreen() {
     orderId: number,
     payload?: {
       customer_id?: number | null;
-      customer_name?: string;
-      customer_identity_document?: string;
-      customer_phone?: string | null;
       customer_email?: string | null;
       apply_inc?: boolean;
     },
@@ -579,103 +589,6 @@ export default function PosScreen() {
         message: "Error marcando el pedido como pagado.",
       });
       return null;
-    }
-  }
-
-  async function handleIssueInvoice(
-    order: PosOrderOut,
-    payload?: {
-      customer_id?: number | null;
-      customer_name?: string;
-      customer_identity_document?: string;
-      customer_phone?: string | null;
-      customer_email?: string | null;
-    },
-  ) {
-    if (!order.sale_id) {
-      setPaymentStatus({
-        kind: "error",
-        message: "No se encontro la venta para emitir factura electronica.",
-      });
-      return false;
-    }
-
-    try {
-      setPaymentStatus({ kind: "loading" });
-      const res = await fetch(`/api/factus/sales/${order.sale_id}/issue`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: payload ? JSON.stringify(payload) : null,
-      });
-      const responsePayload = (await res.json().catch(() => null)) as any;
-      if (!res.ok) {
-        setPaymentStatus({
-          kind: "error",
-          message:
-            (typeof responsePayload?.message === "string" &&
-              responsePayload.message) ||
-            (typeof responsePayload?.detail === "string" &&
-              responsePayload.detail) ||
-            "No se pudo emitir factura en Factus.",
-        });
-        return false;
-      }
-
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === order.id
-            ? {
-                ...o,
-                electronic_invoice_status: "issued",
-                electronic_invoice_number:
-                  (responsePayload?.factus_bill_number as
-                    | string
-                    | null
-                    | undefined) ?? null,
-              }
-            : o,
-        ),
-      );
-      setPaymentStatus({
-        kind: "success",
-        message:
-          (typeof responsePayload?.factus_bill_number === "string" &&
-            responsePayload.factus_bill_number.trim() !== "" &&
-            `Pedido pagado y factura emitida (#${responsePayload.factus_bill_number}).`) ||
-          "Pedido pagado y factura emitida en Factus.",
-      });
-      return true;
-    } catch {
-      setPaymentStatus({
-        kind: "error",
-        message: "Error conectando con Factus para emitir factura.",
-      });
-      return false;
-    }
-  }
-
-  async function ensureFactusReady() {
-    try {
-      setPaymentStatus({ kind: "loading" });
-      const res = await fetch("/api/factus/health", { cache: "no-store" });
-      const payload = (await res.json().catch(() => null)) as any;
-      if (!res.ok) {
-        setPaymentStatus({
-          kind: "error",
-          message:
-            (typeof payload?.message === "string" && payload.message) ||
-            (typeof payload?.detail === "string" && payload.detail) ||
-            "Factus no esta listo. Revisa la configuracion antes de cobrar.",
-        });
-        return false;
-      }
-      return true;
-    } catch {
-      setPaymentStatus({
-        kind: "error",
-        message: "No se pudo validar Factus antes de registrar el pago.",
-      });
-      return false;
     }
   }
 
@@ -732,67 +645,36 @@ export default function PosScreen() {
     }
   }
 
-  function resetWaiterForm() {
-    setSelectedWaiterId("");
-    setWaiterStatus({ kind: "idle" });
-  }
-
-  function openWaiterModal(order: PosOrderOut) {
-    setWaiterOrder(order);
-    setWaiterModalOpen(true);
-    resetWaiterForm();
-    loadWaiters();
-  }
-
-  function closeWaiterModal() {
-    setWaiterModalOpen(false);
-    setWaiterOrder(null);
-    resetWaiterForm();
-  }
-
-  async function loadWaiters() {
-    setLoadingWaiters(true);
-    try {
-      const res = await fetch("/api/personnel/waiters?active=true", {
-        cache: "no-store",
-      });
-      const payload = (await res.json().catch(() => null)) as any;
-      if (!res.ok) {
-        throw new Error(
-          (typeof payload?.message === "string" && payload.message) ||
-            "No se pudo cargar meseros.",
-        );
-      }
-      setWaiterList(Array.isArray(payload) ? (payload as Waiter[]) : []);
-    } catch {
-      setWaiterList([]);
-    } finally {
-      setLoadingWaiters(false);
-    }
-  }
-
-  async function handleWaiterDelivery() {
-    if (!waiterOrder) return;
-    const parsedId = Number(selectedWaiterId);
-    if (!Number.isFinite(parsedId) || parsedId <= 0) {
-      setWaiterStatus({ kind: "error", message: "Selecciona un mesero." });
-      return;
-    }
-    const ok = await handleMarkOrderDelivered(waiterOrder.id, parsedId);
-    if (ok) closeWaiterModal();
-  }
-
   function resetPaymentForm() {
     setPaymentStep("choice");
     setSelectedCustomerId("");
     setCustomerSearchInput("");
-    setCustomerNameInput("");
-    setCustomerDocumentInput("");
-    setCustomerPhoneInput("");
-    setCustomerEmailInput("");
-    setIssueElectronicInvoice(false);
+    setLoyaltyRegistration(null);
+    setLoyaltyQrDataUrl("");
     setApplyConsumptionTax(false);
+    setPaymentMethod("cash");
+    setReceivedAmountInput("");
     setPaymentStatus({ kind: "idle" });
+  }
+
+  function validateReceivedAmount() {
+    if (paymentMethod !== "cash") return true;
+    if (!paymentPreview) return false;
+    if (!Number.isFinite(receivedAmount) || receivedAmount < 0) {
+      setPaymentStatus({
+        kind: "error",
+        message: "Ingresa el efectivo recibido para calcular el cambio.",
+      });
+      return false;
+    }
+    if (receivedAmount < paymentPreview.total) {
+      setPaymentStatus({
+        kind: "error",
+        message: `Faltan ${formatMoney(paymentPreview.total - receivedAmount)} para completar el pago.`,
+      });
+      return false;
+    }
+    return true;
   }
 
   function openPaymentModal(order: PosOrderOut) {
@@ -828,33 +710,98 @@ export default function PosScreen() {
     }
   }
 
-  async function handleOccasionalPayment() {
+  async function handleStartLoyaltyRegistration() {
     if (!paymentOrder) return;
-    if (issueElectronicInvoice) {
+    setPaymentStep("new");
+    setPaymentStatus({ kind: "loading" });
+    setLoyaltyRegistration(null);
+    setLoyaltyQrDataUrl("");
+    try {
+      const response = await fetch("/api/loyalty/registration-sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ order_id: paymentOrder.id }),
+      });
+      const payload = (await response.json().catch(() => null)) as LoyaltyRegistration & {
+        message?: string;
+      };
+      if (!response.ok || !payload?.token) {
+        throw new Error(payload?.message || "No se pudo generar el QR de registro.");
+      }
+      const publicUrlResponse = await fetch("/api/loyalty/public-url", { cache: "no-store" });
+      const publicUrlPayload = (await publicUrlResponse.json().catch(() => null)) as { url?: string } | null;
+      const loyaltyAppUrl =
+        publicUrlPayload?.url ||
+        process.env.NEXT_PUBLIC_LOYALTY_APP_URL ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        window.location.origin;
+      const registrationUrl = `${loyaltyAppUrl.replace(/\/$/, "")}/loyalty/register/${encodeURIComponent(payload.token)}`;
+      const qrDataUrl = await QRCode.toDataURL(registrationUrl, {
+        width: 280,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      });
+      setLoyaltyRegistration(payload);
+      setLoyaltyQrDataUrl(qrDataUrl);
+      setPaymentStatus({ kind: "idle" });
+    } catch (error) {
       setPaymentStatus({
         kind: "error",
-        message:
-          "Para facturar en Factus debes registrar o seleccionar un cliente.",
+        message: error instanceof Error ? error.message : "No se pudo generar el QR de registro.",
       });
+    }
+  }
+
+  useEffect(() => {
+    if (
+      paymentStep !== "new" ||
+      !paymentOrder ||
+      !loyaltyRegistration?.token ||
+      loyaltyRegistration.status !== "pending"
+    ) {
       return;
     }
+
+    let active = true;
+    const checkRegistration = async () => {
+      try {
+        const response = await fetch(
+          `/api/loyalty/registration-sessions/${encodeURIComponent(loyaltyRegistration.token)}`,
+          { cache: "no-store" },
+        );
+        const payload = (await response.json().catch(() => null)) as LoyaltyRegistration;
+        if (active && response.ok && payload) setLoyaltyRegistration(payload);
+      } catch {
+        // The next polling cycle retries while the QR remains open.
+      }
+    };
+
+    const interval = window.setInterval(checkRegistration, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [paymentStep, paymentOrder, loyaltyRegistration]);
+
+  async function handleOccasionalPayment() {
+    if (!paymentOrder) return;
+    if (!validateReceivedAmount()) return;
     const closedOrder = await handleMarkOrderPaid(paymentOrder.id, {
       apply_inc: applyConsumptionTax,
     });
-    if (closedOrder) closePaymentModal();
+    if (closedOrder) {
+      closePaymentModal();
+    }
   }
 
   async function handleExistingCustomerPayment() {
     if (!paymentOrder) return;
+    if (!validateReceivedAmount()) return;
     const parsedId = Number(selectedCustomerId);
     if (!Number.isFinite(parsedId) || parsedId <= 0) {
       setPaymentStatus({ kind: "error", message: "Selecciona un cliente." });
       return;
     }
-    if (issueElectronicInvoice) {
-      const factusReady = await ensureFactusReady();
-      if (!factusReady) return;
-    }
     const closePayload = {
       customer_id: parsedId,
       apply_inc: applyConsumptionTax,
@@ -865,40 +812,25 @@ export default function PosScreen() {
     );
     if (!closedOrder) return;
 
-    if (!issueElectronicInvoice) {
-      closePaymentModal();
-      return;
-    }
-
-    const invoicePayload = {
-      customer_id: parsedId,
-      customer_email: customerEmailInput.trim() || null,
-    };
-    const ok = await handleIssueInvoice(closedOrder, invoicePayload);
-    if (ok) closePaymentModal();
+    closePaymentModal();
   }
 
   async function handleNewCustomerPayment() {
     if (!paymentOrder) return;
-    const name = customerNameInput.trim();
-    const document = customerDocumentInput.trim();
-    if (!name || !document) {
+    if (!validateReceivedAmount()) return;
+    if (
+      !loyaltyRegistration ||
+      loyaltyRegistration.status !== "completed" ||
+      !loyaltyRegistration.customer_id
+    ) {
       setPaymentStatus({
         kind: "error",
-        message: "Nombre y documento son requeridos.",
+        message: "Espera a que el cliente complete el formulario del QR.",
       });
       return;
     }
-    if (issueElectronicInvoice) {
-      const factusReady = await ensureFactusReady();
-      if (!factusReady) return;
-    }
-    const phone = customerPhoneInput.trim();
     const closePayload = {
-      customer_name: name,
-      customer_identity_document: document,
-      customer_phone: phone ? phone : null,
-      customer_email: customerEmailInput.trim() || null,
+      customer_id: loyaltyRegistration.customer_id,
       apply_inc: applyConsumptionTax,
     };
     const closedOrder = await handleMarkOrderPaid(
@@ -907,18 +839,7 @@ export default function PosScreen() {
     );
     if (!closedOrder) return;
 
-    if (!issueElectronicInvoice) {
-      closePaymentModal();
-      return;
-    }
-
-    const ok = await handleIssueInvoice(closedOrder, {
-      customer_name: name,
-      customer_identity_document: document,
-      customer_phone: phone ? phone : null,
-      customer_email: customerEmailInput.trim() || null,
-    });
-    if (ok) closePaymentModal();
+    closePaymentModal();
   }
 
   const filteredCustomerList = useMemo(() => {
@@ -1009,10 +930,14 @@ export default function PosScreen() {
 
   function addConfiguredToCart(configuredOrder: {
     name: string;
+    menuItemName?: string;
     price: number;
     note: string;
   }) {
     const baseItem = menuItems.find((item) => {
+      if (configuredOrder.menuItemName) {
+        return normalizeSearchText(item.name) === normalizeSearchText(configuredOrder.menuItemName);
+      }
       const name = normalizeSearchText(item.name);
       return (
         name.includes("acai") || name.includes("açaí") || name.includes("bowl")
@@ -1028,22 +953,26 @@ export default function PosScreen() {
     }
 
     setCart((prev) => {
-      const existing = prev[baseItem.id];
+      const draft = { ...prev };
+      const editingItem = guidedEditDraft ? draft[guidedEditDraft.cartItemId] : undefined;
+      if (guidedEditDraft) delete draft[guidedEditDraft.cartItemId];
+      const existing = draft[baseItem.id];
       return {
-        ...prev,
+        ...draft,
         [baseItem.id]: {
           menu_item_id: baseItem.id,
-          quantity: existing ? existing.quantity + 1 : 1,
+          quantity: editingItem?.quantity ?? (existing ? existing.quantity + 1 : 1),
           unit_price: configuredOrder.price,
           tax_rate: 0,
-          discount_rate: existing?.discount_rate ?? null,
-          courtesy: existing?.courtesy ?? false,
-          note: existing?.note
+          discount_rate: editingItem?.discount_rate ?? existing?.discount_rate ?? null,
+          courtesy: editingItem?.courtesy ?? existing?.courtesy ?? false,
+          note: editingItem ? configuredOrder.note : existing?.note
             ? `${existing.note}\n${configuredOrder.note}`
             : configuredOrder.note,
         },
       };
     });
+    setGuidedEditDraft(null);
     setSubmitStatus({
       kind: "success",
       message: `${configuredOrder.name} agregado al pedido.`,
@@ -1114,6 +1043,7 @@ export default function PosScreen() {
       }
       await loadOrders();
       setCart({});
+      setGuidedEditDraft(null);
       setNoteInput("");
       setSubmitStatus({ kind: "success", message: "Orden creada." });
     } catch {
@@ -1188,16 +1118,15 @@ export default function PosScreen() {
                     : deliveryMinutes < 60
                       ? `${deliveryMinutes} min`
                       : `${Math.floor(deliveryMinutes / 60)}h ${deliveryMinutes % 60}m`;
-                const isDelivered = order.status === "delivered";
-                const isPaid = order.status === "closed";
+                const isDelivered =
+                  order.status === "delivered" || order.status === "closed";
+                const isPaid =
+                  order.status === "paid" || order.status === "delivered" || order.status === "closed";
                 const isVoided = order.status === "void";
                 const canVoid =
                   order.status === "open" || order.status === "sent";
-                const actionTooltip = isPaid
-                  ? "Pedido pago"
-                  : isDelivered
-                    ? "Marcar pago"
-                    : "Marcar entrega";
+                const actionTooltip =
+                  isPaid && !isDelivered ? "Marcar entrega" : "Marcar pago";
                 return (
                   <TableRow
                     key={order.id}
@@ -1264,11 +1193,11 @@ export default function PosScreen() {
                             type="button"
                             onClick={() => {
                               if (isVoided) return;
-                              if (isPaid) return;
-                              if (isDelivered) {
-                                openPaymentModal(order);
+                              if (order.status === "closed") return;
+                              if (isPaid && !isDelivered) {
+                                void handleMarkOrderDelivered(order.id);
                               } else {
-                                openWaiterModal(order);
+                                openPaymentModal(order);
                               }
                             }}
                             disabled={isVoided}
@@ -1280,12 +1209,12 @@ export default function PosScreen() {
                             }
                           >
                             <span className="sr-only">{actionTooltip}</span>
-                            {isPaid ? (
+                            {order.status === "closed" ? (
                               <FaRegTrashAlt />
-                            ) : isDelivered ? (
-                              <HiOutlineCash />
-                            ) : (
+                            ) : isPaid && !isDelivered ? (
                               <CheckIcon />
+                            ) : (
+                              <HiOutlineCash />
                             )}
                           </button>
                         </Tooltip>
@@ -1473,84 +1402,6 @@ export default function PosScreen() {
         </div>
       ) : null}
 
-      {waiterModalOpen && waiterOrder ? (
-        <div
-          className="fixed inset-0 z-99 flex animate-[fadeIn_160ms_ease-out_forwards] items-center justify-center bg-black/60 p-4 opacity-0"
-          role="dialog"
-          aria-modal="true"
-          onClick={closeWaiterModal}
-        >
-          <div
-            className="w-full max-w-md animate-[fadeIn_200ms_ease-out_60ms_forwards] rounded-2xl border border-stroke bg-white p-5 opacity-0 shadow-2xl dark:border-dark-3 dark:bg-gray-dark"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-semibold text-dark dark:text-white">
-                  Asignar mesero
-                </h3>
-                <p className="text-body-color text-sm dark:text-dark-6">
-                  Pedido #{waiterOrder.id}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeWaiterModal}
-                className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
-                  Selecciona mesero
-                </label>
-                <select
-                  value={selectedWaiterId}
-                  onChange={(e) => setSelectedWaiterId(e.target.value)}
-                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                  disabled={loadingWaiters}
-                >
-                  <option value="">Seleccionar mesero</option>
-                  {waiterList.map((waiter) => (
-                    <option key={waiter.id} value={String(waiter.id)}>
-                      {waiter.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-wrap justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={closeWaiterModal}
-                  className="rounded-lg border border-stroke px-4 py-2 text-sm font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleWaiterDelivery}
-                  disabled={waiterStatus.kind === "loading"}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {waiterStatus.kind === "loading"
-                    ? "Guardando..."
-                    : "Guardar entrega"}
-                </button>
-              </div>
-            </div>
-
-            {waiterStatus.kind === "error" ? (
-              <div className="mt-3 rounded-md border border-red-light bg-red-light-5 px-3 py-2 text-sm text-red dark:border-red-light/40 dark:bg-red-light-5/10 dark:text-red-light">
-                {waiterStatus.message}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {paymentModalOpen && paymentOrder ? (
         <div
           className="fixed inset-0 z-99 flex animate-[fadeIn_160ms_ease-out_forwards] items-center justify-center bg-black/60 p-4 opacity-0"
@@ -1591,7 +1442,7 @@ export default function PosScreen() {
                 Aplicar impuesto al consumo (INC 8%)
               </label>
               <p className="text-body-color mt-1 text-xs dark:text-dark-6">
-                Si no lo marcas, el pedido se cierra sin INC.
+                Si no lo marcas, el pago se registra sin INC.
               </p>
 
               {paymentPreview ? (
@@ -1616,55 +1467,103 @@ export default function PosScreen() {
               ) : null}
             </div>
 
-            <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3">
-              <label className="inline-flex items-center gap-2 text-sm font-medium text-dark dark:text-white">
-                <input
-                  type="checkbox"
-                  checked={issueElectronicInvoice}
-                  onChange={(e) => setIssueElectronicInvoice(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                Emitir factura electrónica (Factus - pruebas)
-              </label>
-              <p className="text-body-color mt-1 text-xs dark:text-dark-6">
-                Requiere cliente con documento. Si falla Factus, el pedido queda
-                pagado y puedes reintentar.
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-semibold text-dark dark:text-white">
+                Medio de pago
               </p>
-              {issueElectronicInvoice ? (
-                <div className="mt-3">
-                  <div>
-                    <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
-                      Email cliente (opcional)
-                    </label>
-                    <input
-                      value={customerEmailInput}
-                      onChange={(e) => setCustomerEmailInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="cliente@correo.com"
-                    />
-                  </div>
-                  <p className="text-body-color mt-2 text-[11px] dark:text-dark-6">
-                    Rango de numeracion tomado desde configuracion del sistema.
-                  </p>
-                </div>
-              ) : null}
+              <div className="grid gap-2 sm:grid-cols-3">
+                {([
+                  ["cash", "Efectivo"],
+                  ["card", "Datáfono"],
+                  ["transfer", "Transferencia"],
+                ] as Array<[PaymentMethod, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setPaymentMethod(value);
+                      setPaymentStatus({ kind: "idle" });
+                    }}
+                    className={
+                      "rounded-lg border px-3 py-3 text-sm font-semibold transition " +
+                      (paymentMethod === value
+                        ? "border-primary bg-primary text-white"
+                        : "border-stroke text-dark hover:border-primary/50 hover:bg-primary/5 dark:border-dark-3 dark:text-white")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {paymentPreview && paymentMethod === "cash" ? (
+              <div className="mt-4 rounded-xl border border-green-light/40 bg-green-light/5 p-4 dark:border-green-light/20 dark:bg-green-light/10">
+                <div>
+                  <label className="min-w-[190px] flex-1">
+                    <span className="mb-1 block text-sm font-semibold text-dark dark:text-white">
+                      Efectivo recibido
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      inputMode="numeric"
+                      value={receivedAmountInput}
+                      onChange={(event) => {
+                        setReceivedAmountInput(event.target.value);
+                        if (paymentStatus.kind === "error") {
+                          setPaymentStatus({ kind: "idle" });
+                        }
+                      }}
+                      placeholder="Ej. 50000"
+                      className="w-full rounded-lg border border-stroke bg-white px-3 py-2.5 text-base font-semibold text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                    />
+                  </label>
+                </div>
+
+                <div
+                  className={
+                    "mt-3 flex items-center justify-between rounded-lg px-3 py-2.5 " +
+                    (!Number.isFinite(receivedAmount)
+                      ? "bg-white/70 text-body-color dark:bg-dark-2"
+                      : paymentChange !== null && paymentChange < 0
+                        ? "bg-red-light-5 text-red dark:bg-red-light/10 dark:text-red-light"
+                        : "bg-green-light/15 text-green-dark dark:bg-green-light/15 dark:text-green-light")
+                  }
+                >
+                  <span className="text-sm font-medium">
+                    {!Number.isFinite(receivedAmount)
+                      ? "Ingresa el dinero recibido"
+                      : paymentChange !== null && paymentChange < 0
+                        ? "Falta por recibir"
+                        : "Devuelve al cliente"}
+                  </span>
+                  <span className="text-lg font-bold">
+                    {!Number.isFinite(receivedAmount)
+                      ? formatMoney(0)
+                      : paymentChange !== null && paymentChange < 0
+                        ? formatMoney(Math.abs(paymentChange))
+                        : formatMoney(paymentChange ?? 0)}
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
             {paymentStep === "choice" ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={handleOccasionalPayment}
+                  disabled={!canCompletePayment || paymentStatus.kind === "loading"}
                   className="rounded-lg border border-stroke px-3 py-3 text-sm font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
                 >
                   Cliente ocasional
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setPaymentStep("new");
-                    setPaymentStatus({ kind: "idle" });
-                  }}
+                  onClick={handleStartLoyaltyRegistration}
+                  disabled={paymentStatus.kind === "loading"}
                   className="rounded-lg bg-primary px-3 py-3 text-sm font-semibold text-white hover:bg-primary/90"
                 >
                   Cliente nuevo
@@ -1686,40 +1585,29 @@ export default function PosScreen() {
 
             {paymentStep === "new" ? (
               <div className="mt-4 space-y-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
-                      Nombre
-                    </label>
-                    <input
-                      value={customerNameInput}
-                      onChange={(e) => setCustomerNameInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="Nombre completo"
+                <div className="flex flex-col items-center rounded-lg border border-primary/25 bg-primary/5 p-4 text-center">
+                  {loyaltyQrDataUrl ? (
+                    <img
+                      src={loyaltyQrDataUrl}
+                      alt="QR para registrar cliente"
+                      className="h-64 w-64 rounded-md bg-white p-2"
                     />
-                  </div>
-                  <div>
-                    <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
-                      Identificacion
-                    </label>
-                    <input
-                      value={customerDocumentInput}
-                      onChange={(e) => setCustomerDocumentInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="Documento"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
-                      Telefono
-                    </label>
-                    <input
-                      value={customerPhoneInput}
-                      onChange={(e) => setCustomerPhoneInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="Telefono"
-                    />
-                  </div>
+                  ) : (
+                    <div className="flex h-64 w-64 items-center justify-center rounded-md bg-white text-sm text-body-color">
+                      Generando QR...
+                    </div>
+                  )}
+                  <p className="mt-3 text-sm font-semibold text-dark dark:text-white">
+                    El cliente debe escanear este QR
+                  </p>
+                  <p className="mt-1 max-w-sm text-xs text-body-color dark:text-dark-6">
+                    En su telefono ingresara nombre, telefono y fecha de cumpleaños. El registro se reflejara aqui automaticamente.
+                  </p>
+                  {loyaltyRegistration?.status === "completed" ? (
+                    <p className="mt-3 rounded-md bg-green-light/15 px-3 py-2 text-sm font-semibold text-green-dark dark:text-green-light">
+                      Cliente registrado: {loyaltyRegistration.customer_name || "listo"}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap justify-between gap-2">
                   <button
@@ -1735,12 +1623,14 @@ export default function PosScreen() {
                   <button
                     type="button"
                     onClick={handleNewCustomerPayment}
-                    disabled={paymentStatus.kind === "loading"}
+                    disabled={
+                      paymentStatus.kind === "loading" ||
+                      loyaltyRegistration?.status !== "completed" ||
+                      !canCompletePayment
+                    }
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
                   >
-                    {paymentStatus.kind === "loading"
-                      ? "Guardando..."
-                      : "Guardar pago"}
+                    {paymentStatus.kind === "loading" ? "Guardando..." : "Guardar pago"}
                   </button>
                 </div>
               </div>
@@ -1799,7 +1689,7 @@ export default function PosScreen() {
                   <button
                     type="button"
                     onClick={handleExistingCustomerPayment}
-                    disabled={paymentStatus.kind === "loading"}
+                    disabled={paymentStatus.kind === "loading" || !canCompletePayment}
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
                   >
                     {paymentStatus.kind === "loading"
@@ -1823,7 +1713,10 @@ export default function PosScreen() {
         <section className="order-first" aria-label="Toma de pedidos">
           <div className="grid w-full grid-cols-1 gap-4 rounded-2xl border border-stroke bg-gray-2 p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark md:grid-cols-[2fr_1fr]">
             <div className="pr-0 md:pr-2">
-              <GuidedOrderBuilder onAddConfigured={addConfiguredToCart} />
+              <GuidedOrderBuilder
+                onAddConfigured={addConfiguredToCart}
+                editDraft={guidedEditDraft}
+              />
             </div>
 
             <aside className="flex flex-col rounded-2xl border border-stroke bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-dark-2">
@@ -1834,16 +1727,16 @@ export default function PosScreen() {
               <div className="mt-3 space-y-3">
                 {cartItems.length === 0 ? (
                   <p className="text-sm text-dark-6 dark:text-dark-6">
-                    Configura un bowl para iniciar el pedido.
+                    Agrega un producto para iniciar el pedido.
                   </p>
                 ) : (
                   cartItems.map((ci) => (
                     <div
                       key={ci.menu_item_id}
-                      className="rounded-xl border border-stroke bg-gray-1 p-3 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white"
+                      className="rounded-xl border border-stroke bg-gray-1 p-3 text-sm text-dark transition dark:border-dark-3 dark:bg-dark-2 dark:text-white"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold">Bowl personalizado</div>
+                        <div className="font-semibold">Producto personalizado</div>
                         <div className="text-primary">
                           {formatMoney(ci.unit_price)}
                         </div>
@@ -1935,19 +1828,40 @@ export default function PosScreen() {
                                 (1 + (ci.tax_rate ?? 0)),
                         )}
                       </div>
-                      <div className="mt-2 flex justify-end">
+                      <div className="mt-2 flex justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            const menuItem = menuItems.find((item) => item.id === ci.menu_item_id);
+                            setGuidedEditDraft({
+                              cartItemId: ci.menu_item_id,
+                              name: menuItem?.name ?? "Producto personalizado",
+                              menuItemName: menuItem?.name ?? "Açaí personalizado",
+                              price: ci.unit_price,
+                              note: ci.note ?? "",
+                            });
+                          }}
+                          title="Editar en Arma tu pedido"
+                          aria-label="Editar en Arma tu pedido"
+                          className="rounded-lg border border-primary/30 px-2 py-1.5 text-sm text-primary transition hover:bg-primary/5 dark:border-dark-3"
+                        >
+                          <FaRegEdit />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
                             setCart((prev) => {
                               const clone = { ...prev };
                               delete clone[ci.menu_item_id];
                               return clone;
-                            })
-                          }
-                          className="rounded-lg border border-stroke px-3 py-1 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+                            });
+                            setGuidedEditDraft((current) => current?.cartItemId === ci.menu_item_id ? null : current);
+                          }}
+                          title="Eliminar producto"
+                          aria-label="Eliminar producto"
+                          className="rounded-lg border border-red/30 bg-red/5 px-2 py-1.5 text-sm text-red transition hover:bg-red/10"
                         >
-                          Eliminar
+                          <FaRegTrashAlt />
                         </button>
                       </div>
                       <div className="mt-2">
@@ -2002,7 +1916,10 @@ export default function PosScreen() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCart({})}
+                  onClick={() => {
+                    setCart({});
+                    setGuidedEditDraft(null);
+                  }}
                   className="rounded-lg border border-stroke px-4 py-2 text-sm font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
                 >
                   Limpiar

@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
-from . import auth, db, factus, inventory, menu, models, personnel, pos, reservations, sales
+from . import auth, db, expenses, factus, inventory, loyalty, menu, models, personnel, pos, reservations, sales
 
 app = FastAPI()
 
@@ -17,6 +17,12 @@ def _auto_migrate_schema() -> None:
         with db.engine.begin() as conn:
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ALTER COLUMN unit DROP NOT NULL"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products DROP COLUMN IF EXISTS reorder_point"))
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS inventory_products "
+                    "ADD COLUMN IF NOT EXISTS is_purchase_registered BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS menu_items "
@@ -32,21 +38,12 @@ def _auto_migrate_schema() -> None:
             conn.execute(
                 text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS customer_id INTEGER")
             )
-            conn.execute(
-                text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS waiter_id INTEGER")
-            )
-            conn.execute(
-                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS waiter_id INTEGER")
-            )
+            conn.execute(text("ALTER TABLE IF EXISTS pos_orders DROP COLUMN IF EXISTS waiter_id"))
+            conn.execute(text("ALTER TABLE IF EXISTS sales DROP COLUMN IF EXISTS waiter_id"))
+            conn.execute(text("DROP TABLE IF EXISTS waiters"))
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS suppliers "
-                    "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE IF EXISTS waiters "
                     "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
                 )
             )
@@ -56,6 +53,11 @@ def _auto_migrate_schema() -> None:
                     "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
                 )
             )
+            conn.execute(text("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS birth_date DATE"))
+            conn.execute(text("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS loyalty_code VARCHAR"))
+            conn.execute(text("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS loyalty_stamps INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS loyalty_rewards INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_customers_loyalty_code ON customers (loyalty_code)"))
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS recipes "
@@ -105,7 +107,9 @@ def _init_db() -> None:
 app.include_router(auth.router)
 app.include_router(menu.router)
 app.include_router(inventory.router)
+app.include_router(expenses.router)
 app.include_router(personnel.router)
+app.include_router(loyalty.router)
 app.include_router(pos.router)
 app.include_router(sales.router)
 app.include_router(reservations.router)

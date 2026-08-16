@@ -39,9 +39,15 @@ export const NAV_DATA: NavigationSection[] = [
         title: "Inventario",
         url: "/inventory",
         icon: Icons.MdOutlineInventory,
+        items: [],
+      },
+      {
+        title: "Compras y gastos",
+        icon: Icons.PieChart,
+        adminOnly: true,
         items: [
-          { title: "Inventario", url: "/inventory" },
           { title: "Compras", url: "/inventory/purchases" },
+          { title: "Gastos", url: "/expenses" },
         ],
       },
       {

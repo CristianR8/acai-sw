@@ -56,9 +56,10 @@ function errorToJson(error: unknown) {
   return { message: String(error) };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const backendBaseUrl = getBackendBaseUrl();
-  const url = toAbsoluteUrl(backendBaseUrl, "/inventory/purchases");
+  const query = new URL(request.url).search;
+  const url = `${toAbsoluteUrl(backendBaseUrl, "/inventory/purchases")}${query}`;
 
   let response: Response;
   try {

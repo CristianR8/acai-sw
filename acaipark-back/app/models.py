@@ -54,6 +54,7 @@ class InventoryProduct(Base):
     last_cost = Column(Numeric(14, 4), nullable=False, default=0)
 
     is_active = Column(Boolean, default=True)
+    is_purchase_registered = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     movements = relationship("StockMovement", back_populates="product")
@@ -144,6 +145,36 @@ class PurchaseItem(Base):
         return self.product.name if self.product else None
 
 
+class FixedExpense(Base):
+    __tablename__ = "fixed_expenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    category = Column(String, nullable=False)
+    monthly_amount = Column(Numeric(14, 4), nullable=False, default=0)
+    due_day = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    payments = relationship("FixedExpensePayment", back_populates="fixed_expense", cascade="all, delete-orphan")
+
+
+class FixedExpensePayment(Base):
+    __tablename__ = "fixed_expense_payments"
+    __table_args__ = (UniqueConstraint("fixed_expense_id", "period", name="uq_fixed_expense_payment_period"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    fixed_expense_id = Column(Integer, ForeignKey("fixed_expenses.id"), nullable=False, index=True)
+    period = Column(Date, nullable=False, index=True)
+    due_date = Column(Date, nullable=False, index=True)
+    amount = Column(Numeric(14, 4), nullable=False, default=0)
+    status = Column(String, nullable=False, default="scheduled", index=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    fixed_expense = relationship("FixedExpense", back_populates="payments")
+
+
 class Recipe(Base):
     __tablename__ = "recipes"
 
@@ -181,19 +212,6 @@ class PosTable(Base):
     orders = relationship("PosOrder", back_populates="table")
 
 
-class Waiter(Base):
-    __tablename__ = "waiters"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False, index=True)
-    gender = Column(String, nullable=False, default="male")
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    orders = relationship("PosOrder", back_populates="waiter")
-    sales = relationship("Sale", back_populates="waiter")
-
-
 class Customer(Base):
     __tablename__ = "customers"
 
@@ -201,6 +219,10 @@ class Customer(Base):
     name = Column(String, nullable=False, index=True)
     identity_document = Column(String, nullable=False, index=True)
     phone = Column(String, nullable=True, index=True)
+    birth_date = Column(Date, nullable=True)
+    loyalty_code = Column(String, nullable=True, unique=True, index=True)
+    loyalty_stamps = Column(Integer, nullable=False, default=0)
+    loyalty_rewards = Column(Integer, nullable=False, default=0)
     gender = Column(String, nullable=False, default="male")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -208,12 +230,27 @@ class Customer(Base):
     sales = relationship("Sale", back_populates="customer")
 
 
+class LoyaltyRegistrationSession(Base):
+    __tablename__ = "loyalty_registration_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, nullable=False, unique=True, index=True)
+    order_id = Column(Integer, ForeignKey("pos_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True, index=True)
+    status = Column(String, nullable=False, default="pending", index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    order = relationship("PosOrder")
+    customer = relationship("Customer")
+
+
 class PosOrder(Base):
     __tablename__ = "pos_orders"
 
     id = Column(Integer, primary_key=True, index=True)
     table_id = Column(Integer, ForeignKey("pos_tables.id"), nullable=False, index=True)
-    waiter_id = Column(Integer, ForeignKey("waiters.id"), nullable=True, index=True)
     status = Column(String, nullable=False, index=True, default="open")  # open|sent|delivered|closed|void
     subtotal = Column(Numeric(14, 2), nullable=False, default=0)
     tax_total = Column(Numeric(14, 2), nullable=False, default=0)
@@ -228,7 +265,6 @@ class PosOrder(Base):
     closed_at = Column(DateTime(timezone=True), nullable=True)
 
     table = relationship("PosTable", back_populates="orders")
-    waiter = relationship("Waiter", back_populates="orders")
     items = relationship("PosOrderItem", back_populates="order", cascade="all, delete-orphan")
     sale = relationship("Sale", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
@@ -282,7 +318,6 @@ class Sale(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("pos_orders.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
     customer_id = Column(Integer, ForeignKey("customers.id"), index=True, nullable=True)
-    waiter_id = Column(Integer, ForeignKey("waiters.id"), index=True, nullable=True)
     subtotal = Column(Numeric(14, 2), nullable=False, default=0)
     tax_total = Column(Numeric(14, 2), nullable=False, default=0)
     discount_total = Column(Numeric(14, 2), nullable=False, default=0)
@@ -293,7 +328,6 @@ class Sale(Base):
 
     order = relationship("PosOrder", back_populates="sale")
     customer = relationship("Customer", back_populates="sales")
-    waiter = relationship("Waiter", back_populates="sales")
     items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
     electronic_invoice = relationship(
         "ElectronicInvoice",

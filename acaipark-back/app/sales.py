@@ -78,56 +78,6 @@ def sales_by_product(period: str | None = None, db_session: Session = Depends(db
     ]
 
 
-@router.get("/summary/categories", response_model=list[schemas.SalesByCategoryOut])
-def sales_by_category(period: str | None = None, db_session: Session = Depends(db.get_db)):
-    start_date = _period_start(period)
-    query = (
-        db_session.query(
-            models.SaleItem.category,
-            func.coalesce(func.sum(models.SaleItem.quantity), 0).label("quantity"),
-            func.coalesce(func.sum(models.SaleItem.line_total), 0).label("total"),
-        )
-        .join(models.Sale, models.Sale.id == models.SaleItem.sale_id)
-        .group_by(models.SaleItem.category)
-        .order_by(func.sum(models.SaleItem.line_total).desc())
-    )
-    if start_date is not None:
-        query = query.filter(models.Sale.created_at >= start_date)
-    rows = query.all()
-    return [
-        schemas.SalesByCategoryOut(category=row.category, quantity=row.quantity, total=row.total)
-        for row in rows
-    ]
-
-
-@router.get("/summary/waiters", response_model=list[schemas.SalesByWaiterOut])
-def sales_by_waiter(period: str | None = None, db_session: Session = Depends(db.get_db)):
-    start_date = _period_start(period)
-    query = (
-        db_session.query(
-            models.Sale.waiter_id,
-            func.coalesce(models.Waiter.name, "Sin asignar").label("name"),
-            func.coalesce(func.count(models.Sale.id), 0).label("quantity"),
-            func.coalesce(func.sum(models.Sale.total), 0).label("total"),
-        )
-        .outerjoin(models.Waiter, models.Waiter.id == models.Sale.waiter_id)
-        .group_by(models.Sale.waiter_id, models.Waiter.name)
-        .order_by(func.sum(models.Sale.total).desc())
-    )
-    if start_date is not None:
-        query = query.filter(models.Sale.created_at >= start_date)
-    rows = query.all()
-    return [
-        schemas.SalesByWaiterOut(
-            waiter_id=row.waiter_id,
-            name=row.name,
-            quantity=row.quantity,
-            total=row.total,
-        )
-        for row in rows
-    ]
-
-
 @router.get("/summary/tables", response_model=list[schemas.SalesByTableOut])
 def sales_by_table(period: str | None = None, db_session: Session = Depends(db.get_db)):
     start_date = _period_start(period)

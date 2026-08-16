@@ -184,6 +184,55 @@ class PurchaseOut(BaseModel):
         orm_mode = True
 
 
+class FixedExpenseOut(BaseModel):
+    id: int
+    name: str
+    category: str
+    monthly_amount: Decimal
+    due_day: int
+    is_active: bool
+
+    class Config:
+        orm_mode = True
+
+
+class FixedExpenseUpdate(BaseModel):
+    monthly_amount: Decimal = Field(ge=0)
+    due_day: int = Field(ge=1, le=31)
+    is_active: bool = True
+
+
+class FixedExpenseCalendarOut(BaseModel):
+    id: int | None = None
+    fixed_expense_id: int
+    name: str
+    category: str
+    due_date: date
+    amount: Decimal
+    status: str
+    paid_at: datetime | None = None
+
+
+class FixedExpensePaymentOut(FixedExpenseCalendarOut):
+    id: int
+
+
+class FixedExpensePaymentCreate(BaseModel):
+    fixed_expense_id: int
+    payment_date: date
+    amount: Decimal = Field(gt=0)
+
+
+class ManualExpensePaymentOut(BaseModel):
+    id: int
+    fixed_expense_id: int
+    name: str
+    category: str
+    payment_date: date
+    amount: Decimal
+    paid_at: datetime | None = None
+
+
 class RecipeItemUpsert(BaseModel):
     product_id: int
     quantity: Decimal = Field(gt=0)
@@ -347,7 +396,6 @@ class PosOrderItemOut(BaseModel):
 class PosOrderOut(BaseModel):
     id: int
     table_id: int
-    waiter_id: int | None
     sale_id: int | None = None
     status: str
     electronic_invoice_status: str | None = None
@@ -370,7 +418,6 @@ class PosOrderOut(BaseModel):
 
 class PosOrderDeliver(BaseModel):
     delivered: bool = True
-    waiter_id: int | None = None
 
 
 class PosOrderClose(BaseModel):
@@ -401,7 +448,6 @@ class SaleOut(BaseModel):
     id: int
     order_id: int
     customer_id: int | None
-    waiter_id: int | None
     subtotal: Decimal
     tax_total: Decimal
     discount_total: Decimal
@@ -482,19 +528,6 @@ class SalesByProductOut(BaseModel):
     total: Decimal
 
 
-class SalesByCategoryOut(BaseModel):
-    category: str
-    quantity: Decimal
-    total: Decimal
-
-
-class SalesByWaiterOut(BaseModel):
-    waiter_id: int | None
-    name: str
-    quantity: Decimal
-    total: Decimal
-
-
 class SalesByTableOut(BaseModel):
     table_id: int | None
     name: str | None
@@ -545,33 +578,11 @@ class MenuItemOut(MenuItemBase):
         orm_mode = True
 
 
-class WaiterCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    gender: str = Field(default="male", max_length=20)
-    is_active: bool = True
-
-
-class WaiterUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=200)
-    gender: str | None = Field(default=None, max_length=20)
-    is_active: bool | None = None
-
-
-class WaiterOut(BaseModel):
-    id: int
-    name: str
-    gender: str
-    is_active: bool
-    created_at: datetime
-
-    class Config:
-        orm_mode = True
-
-
 class CustomerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     identity_document: str = Field(min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=50)
+    birth_date: date | None = None
     gender: str = Field(default="male", max_length=20)
     is_active: bool = True
 
@@ -580,6 +591,7 @@ class CustomerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     identity_document: str | None = Field(default=None, min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=50)
+    birth_date: date | None = None
     gender: str | None = Field(default=None, max_length=20)
     is_active: bool | None = None
 
@@ -589,9 +601,48 @@ class CustomerOut(BaseModel):
     name: str
     identity_document: str
     phone: str | None
+    birth_date: date | None
+    loyalty_code: str | None
+    loyalty_stamps: int
+    loyalty_rewards: int
     gender: str
     is_active: bool
     created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class LoyaltyRegistrationCreate(BaseModel):
+    order_id: int
+
+
+class LoyaltyRegistrationComplete(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    phone: str = Field(min_length=5, max_length=50)
+    birth_date: date
+
+
+class LoyaltyRegistrationOut(BaseModel):
+    token: str
+    order_id: int
+    status: str
+    expires_at: datetime
+    customer_id: int | None = None
+    customer_name: str | None = None
+    loyalty_stamps: int | None = None
+    loyalty_rewards: int | None = None
+    loyalty_code: str | None = None
+
+    class Config:
+        orm_mode = True
+
+
+class LoyaltyCardOut(BaseModel):
+    name: str
+    loyalty_code: str
+    loyalty_stamps: int
+    loyalty_rewards: int
 
     class Config:
         orm_mode = True
