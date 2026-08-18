@@ -99,7 +99,7 @@ type LoyaltyRegistration = {
   loyalty_code?: string | null;
 };
 
-type PaymentMethod = "cash" | "card" | "transfer";
+type PaymentMethod = "cash" | "dataphone" | "transfer";
 
 type PosOrderItemCreate = {
   menu_item_id: number;
@@ -416,12 +416,14 @@ export default function PosScreen() {
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [customerSearchInput, setCustomerSearchInput] = useState("");
+  const [customerKeyboardOpen, setCustomerKeyboardOpen] = useState(false);
   const [loyaltyRegistration, setLoyaltyRegistration] =
     useState<LoyaltyRegistration | null>(null);
   const [loyaltyQrDataUrl, setLoyaltyQrDataUrl] = useState("");
   const [applyConsumptionTax, setApplyConsumptionTax] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [receivedAmountInput, setReceivedAmountInput] = useState("");
+  const [cashKeypadOpen, setCashKeypadOpen] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
@@ -551,6 +553,8 @@ export default function PosScreen() {
       customer_id?: number | null;
       customer_email?: string | null;
       apply_inc?: boolean;
+      payment_method?: PaymentMethod;
+      cash_received?: number | null;
     },
   ): Promise<PosOrderOut | null> {
     try {
@@ -649,11 +653,13 @@ export default function PosScreen() {
     setPaymentStep("choice");
     setSelectedCustomerId("");
     setCustomerSearchInput("");
+    setCustomerKeyboardOpen(false);
     setLoyaltyRegistration(null);
     setLoyaltyQrDataUrl("");
     setApplyConsumptionTax(false);
     setPaymentMethod("cash");
     setReceivedAmountInput("");
+    setCashKeypadOpen(false);
     setPaymentStatus({ kind: "idle" });
   }
 
@@ -675,6 +681,25 @@ export default function PosScreen() {
       return false;
     }
     return true;
+  }
+
+  function appendCashKey(key: string) {
+    setReceivedAmountInput((current) => {
+      const digits = current.replace(/\D/g, "");
+      if (key === "backspace") return digits.slice(0, -1);
+      if (key === "clear") return "";
+      return `${digits}${key}`.replace(/^0+(?=\d)/, "");
+    });
+    if (paymentStatus.kind === "error") setPaymentStatus({ kind: "idle" });
+  }
+
+  function appendCustomerSearchKey(key: string) {
+    setCustomerSearchInput((current) => {
+      if (key === "backspace") return current.slice(0, -1);
+      if (key === "clear") return "";
+      if (key === "space") return `${current} `;
+      return `${current}${key}`;
+    });
   }
 
   function openPaymentModal(order: PosOrderOut) {
@@ -788,6 +813,8 @@ export default function PosScreen() {
     if (!validateReceivedAmount()) return;
     const closedOrder = await handleMarkOrderPaid(paymentOrder.id, {
       apply_inc: applyConsumptionTax,
+      payment_method: paymentMethod,
+      cash_received: paymentMethod === "cash" ? receivedAmount : null,
     });
     if (closedOrder) {
       closePaymentModal();
@@ -805,6 +832,8 @@ export default function PosScreen() {
     const closePayload = {
       customer_id: parsedId,
       apply_inc: applyConsumptionTax,
+      payment_method: paymentMethod,
+      cash_received: paymentMethod === "cash" ? receivedAmount : null,
     };
     const closedOrder = await handleMarkOrderPaid(
       paymentOrder.id,
@@ -832,6 +861,8 @@ export default function PosScreen() {
     const closePayload = {
       customer_id: loyaltyRegistration.customer_id,
       apply_inc: applyConsumptionTax,
+      payment_method: paymentMethod,
+      cash_received: paymentMethod === "cash" ? receivedAmount : null,
     };
     const closedOrder = await handleMarkOrderPaid(
       paymentOrder.id,
@@ -1410,7 +1441,7 @@ export default function PosScreen() {
           onClick={closePaymentModal}
         >
           <div
-            className="w-full max-w-lg animate-[fadeIn_200ms_ease-out_60ms_forwards] rounded-2xl border border-stroke bg-white p-5 opacity-0 shadow-2xl dark:border-dark-3 dark:bg-gray-dark"
+            className="w-full max-w-5xl animate-[fadeIn_200ms_ease-out_60ms_forwards] rounded-2xl border border-stroke bg-white p-4 opacity-0 shadow-2xl dark:border-dark-3 dark:bg-gray-dark sm:p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-2">
@@ -1431,7 +1462,8 @@ export default function PosScreen() {
               </button>
             </div>
 
-            <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3">
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border border-primary/25 bg-primary/5 p-3">
               <label className="inline-flex items-center gap-2 text-sm font-medium text-dark dark:text-white">
                 <input
                   type="checkbox"
@@ -1465,16 +1497,16 @@ export default function PosScreen() {
                   </div>
                 </div>
               ) : null}
-            </div>
+              </div>
 
-            <div className="mt-4">
+              <div>
               <p className="mb-2 text-sm font-semibold text-dark dark:text-white">
                 Medio de pago
               </p>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-2">
                 {([
                   ["cash", "Efectivo"],
-                  ["card", "Datáfono"],
+                  ["dataphone", "Datáfono"],
                   ["transfer", "Transferencia"],
                 ] as Array<[PaymentMethod, string]>).map(([value, label]) => (
                   <button
@@ -1485,7 +1517,7 @@ export default function PosScreen() {
                       setPaymentStatus({ kind: "idle" });
                     }}
                     className={
-                      "rounded-lg border px-3 py-3 text-sm font-semibold transition " +
+                      "min-w-0 whitespace-nowrap rounded-lg border px-2 py-3 text-xs font-semibold transition sm:text-sm " +
                       (paymentMethod === value
                         ? "border-primary bg-primary text-white"
                         : "border-stroke text-dark hover:border-primary/50 hover:bg-primary/5 dark:border-dark-3 dark:text-white")
@@ -1496,31 +1528,61 @@ export default function PosScreen() {
                 ))}
               </div>
             </div>
+            </div>
 
+            <div className="mt-4 grid items-start gap-x-4 gap-y-0 lg:grid-cols-2">
             {paymentPreview && paymentMethod === "cash" ? (
-              <div className="mt-4 rounded-xl border border-green-light/40 bg-green-light/5 p-4 dark:border-green-light/20 dark:bg-green-light/10">
+              <div className="order-2 lg:-mt-[6.5rem] rounded-xl border border-green-light/40 bg-green-light/5 p-3 dark:border-green-light/20 dark:bg-green-light/10">
                 <div>
-                  <label className="min-w-[190px] flex-1">
-                    <span className="mb-1 block text-sm font-semibold text-dark dark:text-white">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-dark dark:text-white">
                       Efectivo recibido
                     </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="100"
-                      inputMode="numeric"
-                      value={receivedAmountInput}
-                      onChange={(event) => {
-                        setReceivedAmountInput(event.target.value);
-                        if (paymentStatus.kind === "error") {
-                          setPaymentStatus({ kind: "idle" });
-                        }
-                      }}
-                      placeholder="Ej. 50000"
-                      className="w-full rounded-lg border border-stroke bg-white px-3 py-2.5 text-base font-semibold text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                    />
-                  </label>
+                    <span className="rounded-md bg-white px-2 py-1 text-sm font-bold text-dark dark:bg-gray-dark dark:text-white">
+                      {receivedAmountInput ? formatMoney(Number(receivedAmountInput)) : "Selecciona un valor"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {([
+                      [2000, "/money/2mil.jpg", "2 mil"],
+                      [5000, "/money/5mil.jpg", "5 mil"],
+                      [10000, "/money/10mil.jpg", "10 mil"],
+                      [20000, "/money/20mil.jpg", "20 mil"],
+                      [50000, "/money/50mil.jpg", "50 mil"],
+                      [100000, "/money/100mil.jpg", "100 mil"],
+                    ] as Array<[number, string, string]>).map(([amount, image, label]) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => {
+                          setReceivedAmountInput(String(amount));
+                          setCashKeypadOpen(false);
+                        }}
+                        className="overflow-hidden rounded-md border border-stroke bg-white text-[11px] font-semibold text-dark transition hover:border-primary hover:ring-1 hover:ring-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                      >
+                        <img src={image} alt={`Billete de ${label}`} className="h-10 w-full object-cover" />
+                        <span className="block py-1">{formatMoney(amount)}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCashKeypadOpen(true)}
+                    className="mt-2 w-full rounded-lg border border-primary/40 bg-white px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/5 dark:border-primary/50 dark:bg-gray-dark"
+                  >
+                    Otro valor
+                  </button>
                 </div>
+
+                {cashKeypadOpen ? (
+                  <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "backspace"].map((key) => (
+                      <button key={key} type="button" onClick={() => appendCashKey(key)} className="rounded-lg border border-stroke bg-white py-2 text-base font-bold text-dark transition hover:border-primary hover:bg-primary/5 dark:border-dark-3 dark:bg-gray-dark dark:text-white">
+                        {key === "clear" ? "Limpiar" : key === "backspace" ? "⌫" : key}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div
                   className={
@@ -1551,7 +1613,7 @@ export default function PosScreen() {
             ) : null}
 
             {paymentStep === "choice" ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="order-1 grid gap-3 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={handleOccasionalPayment}
@@ -1584,20 +1646,20 @@ export default function PosScreen() {
             ) : null}
 
             {paymentStep === "new" ? (
-              <div className="mt-4 space-y-3">
-                <div className="flex flex-col items-center rounded-lg border border-primary/25 bg-primary/5 p-4 text-center">
+              <div className="order-1 space-y-3">
+                <div className="flex flex-col items-center rounded-lg border border-primary/25 bg-primary/5 p-3 text-center">
                   {loyaltyQrDataUrl ? (
                     <img
                       src={loyaltyQrDataUrl}
                       alt="QR para registrar cliente"
-                      className="h-64 w-64 rounded-md bg-white p-2"
+                      className="h-48 w-48 rounded-md bg-white p-2"
                     />
                   ) : (
-                    <div className="flex h-64 w-64 items-center justify-center rounded-md bg-white text-sm text-body-color">
+                    <div className="flex h-48 w-48 items-center justify-center rounded-md bg-white text-sm text-body-color">
                       Generando QR...
                     </div>
                   )}
-                  <p className="mt-3 text-sm font-semibold text-dark dark:text-white">
+                  <p className="mt-2 text-sm font-semibold text-dark dark:text-white">
                     El cliente debe escanear este QR
                   </p>
                   <p className="mt-1 max-w-sm text-xs text-body-color dark:text-dark-6">
@@ -1637,7 +1699,7 @@ export default function PosScreen() {
             ) : null}
 
             {paymentStep === "existing" ? (
-              <div className="mt-4 space-y-3">
+              <div className="order-1 space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
@@ -1645,8 +1707,10 @@ export default function PosScreen() {
                     </label>
                     <input
                       value={customerSearchInput}
-                      onChange={(e) => setCustomerSearchInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                      readOnly
+                      onClick={() => setCustomerKeyboardOpen(true)}
+                      onFocus={() => setCustomerKeyboardOpen(true)}
+                      className="w-full cursor-pointer rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                       placeholder="Buscar por nombre o cédula"
                       disabled={loadingCustomers}
                     />
@@ -1655,6 +1719,28 @@ export default function PosScreen() {
                         ? "Cargando clientes..."
                         : `${filteredCustomerList.length} cliente(s) encontrado(s)`}
                     </p>
+                    {customerKeyboardOpen ? (
+                      <div className="mt-2 rounded-lg border border-stroke bg-gray-1 p-2 dark:border-dark-3 dark:bg-dark-2">
+                        {[
+                          ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
+                          ["A", "S", "D", "F", "G", "H", "J", "K", "L", "Ñ"],
+                          ["Z", "X", "C", "V", "B", "N", "M", "space", "backspace", "clear"],
+                        ].map((row, rowIndex) => (
+                          <div key={rowIndex} className="mt-1 grid grid-cols-10 gap-1 first:mt-0">
+                            {row.map((key) => (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => appendCustomerSearchKey(key)}
+                                className="min-w-0 rounded border border-stroke bg-white px-1 py-1.5 text-xs font-semibold text-dark hover:border-primary hover:bg-primary/5 dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                              >
+                                {key === "space" ? "Espacio" : key === "backspace" ? "⌫" : key === "clear" ? "Limpiar" : key}
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <div>
                     <label className="text-body-color mb-1 block text-xs font-medium dark:text-dark-6">
@@ -1662,7 +1748,10 @@ export default function PosScreen() {
                     </label>
                     <select
                       value={selectedCustomerId}
-                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedCustomerId(e.target.value);
+                        setCustomerKeyboardOpen(false);
+                      }}
                       className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                       disabled={loadingCustomers}
                     >
@@ -1689,7 +1778,11 @@ export default function PosScreen() {
                   <button
                     type="button"
                     onClick={handleExistingCustomerPayment}
-                    disabled={paymentStatus.kind === "loading" || !canCompletePayment}
+                    disabled={
+                      paymentStatus.kind === "loading" ||
+                      !canCompletePayment ||
+                      !selectedCustomerId
+                    }
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
                   >
                     {paymentStatus.kind === "loading"
@@ -1699,6 +1792,7 @@ export default function PosScreen() {
                 </div>
               </div>
             ) : null}
+            </div>
 
             {paymentStatus.kind === "error" ? (
               <div className="mt-3 rounded-md border border-red-light bg-red-light-5 px-3 py-2 text-sm text-red dark:border-red-light/40 dark:bg-red-light-5/10 dark:text-red-light">

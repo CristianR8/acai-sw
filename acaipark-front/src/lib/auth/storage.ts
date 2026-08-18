@@ -1,5 +1,5 @@
-export const ACCESS_TOKEN_KEY = "girona_access_token";
-export const TOKEN_TYPE_KEY = "girona_token_type";
+export const ACCESS_TOKEN_KEY = "acai_access_token";
+export const TOKEN_TYPE_KEY = "acai_token_type";
 export const USER_ROLE_KEY = "acaipark_user_role";
 export const REMEMBER_AUTH_KEY = "acaipark_remember_auth";
 

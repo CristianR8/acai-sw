@@ -34,7 +34,7 @@ const extraRecipes = [
     ],
   },
   {
-    menuName: "MIGAO GIRONA",
+    menuName: "MIGAO ACAI",
     ingredients: [
       { name: "QUESO BLOQUE", weight: 60, price: 0 },
       { name: "ACHIRAS", weight: 8, price: 0 },

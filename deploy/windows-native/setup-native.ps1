@@ -1,8 +1,8 @@
 param(
   [string]$ProjectRoot = "C:\acaipark-sw",
-  [string]$PgUser = "girona_user",
+  [string]$PgUser = "acai_user",
   [string]$PgPassword = "change_me",
-  [string]$PgDatabase = "girona_prod",
+  [string]$PgDatabase = "acai_prod",
   [string]$PgHost = "127.0.0.1",
   [int]$PgPort = 5432
 )

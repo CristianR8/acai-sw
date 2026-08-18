@@ -3,6 +3,16 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body {
+    touch-action: pan-y;
+    overscroll-behavior-y: auto;
+  }
+
+  /* Los tamaños se seleccionan en su ventana emergente, no en el flujo principal. */
+  section > div.mt-5:has([data-guided-choice-card]) {
+    display: none;
+  }
   body {
     @apply bg-gray-2 text-dark-5 dark:bg-[#020D1A] dark:text-dark-6;
   }

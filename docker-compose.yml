@@ -4,13 +4,13 @@ services:
     container_name: acaipark-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-girona_prod}
-      POSTGRES_USER: ${POSTGRES_USER:-girona_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-girona_pass_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-acai_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-acai_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acai_pass_change_me}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-girona_user} -d ${POSTGRES_DB:-girona_prod}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-acai_user} -d ${POSTGRES_DB:-acai_prod}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -24,7 +24,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-girona_user}:${POSTGRES_PASSWORD:-girona_pass_change_me}@db:5432/${POSTGRES_DB:-girona_prod}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-acai_user}:${POSTGRES_PASSWORD:-acai_pass_change_me}@db:5432/${POSTGRES_DB:-acai_prod}
       AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-1}
       AUTO_MIGRATE_SCHEMA: ${AUTO_MIGRATE_SCHEMA:-1}
       FACTUS_ENABLED: ${FACTUS_ENABLED:-1}
@@ -55,6 +55,10 @@ services:
       FACTUS_ESTABLISHMENT_MUNICIPALITY_ID: ${FACTUS_ESTABLISHMENT_MUNICIPALITY_ID:-}
       # Cloud/Linux containers cannot access a thermal printer attached to the POS PC.
       POS_AUTO_PRINT_RECEIPT: ${POS_AUTO_PRINT_RECEIPT:-0}
+      POS_AUTO_PRINT_COMANDA: ${POS_AUTO_PRINT_COMANDA:-0}
+      POS_COMANDA_PRINTER: ${POS_COMANDA_PRINTER:-}
+      POS_COMANDA_SPLIT_BY_ZONE: ${POS_COMANDA_SPLIT_BY_ZONE:-1}
+      POS_COMANDA_COPIES: ${POS_COMANDA_COPIES:-1}
       POS_RECEIPT_PRINTER: ${POS_RECEIPT_PRINTER:-M2020}
       POS_RECEIPT_COPIES: ${POS_RECEIPT_COPIES:-1}
       POS_RECEIPT_BUSINESS_NAME: ${POS_RECEIPT_BUSINESS_NAME:-ACAI PARK}
@@ -62,6 +66,8 @@ services:
       POS_RECEIPT_ADDRESS: ${POS_RECEIPT_ADDRESS:-}
       POS_RECEIPT_PHONE: ${POS_RECEIPT_PHONE:-}
       POS_RECEIPT_FOOTER: ${POS_RECEIPT_FOOTER:-Gracias por tu compra. Te esperamos pronto.}
+      PRINT_AGENT_URL: ${PRINT_AGENT_URL:-}
+      PRINT_AGENT_TOKEN: ${PRINT_AGENT_TOKEN:-}
     ports:
       - "8000:8000"
 

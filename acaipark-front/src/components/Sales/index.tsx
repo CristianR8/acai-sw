@@ -42,6 +42,8 @@ type Sale = {
   courtesy_count: number | string;
   service_total: number | string;
   total: number | string;
+  payment_method?: "cash" | "card" | "dataphone" | "transfer" | null;
+  cash_received?: number | string | null;
   created_at: string;
   items: SaleItem[];
 };
@@ -104,6 +106,16 @@ function formatCount(value: unknown) {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   }).format(num);
+}
+
+function paymentMethodLabel(method: Sale["payment_method"]) {
+  const labels: Record<string, string> = {
+    cash: "Efectivo",
+    card: "Datáfono",
+    dataphone: "Datáfono",
+    transfer: "Transferencia",
+  };
+  return labels[method ?? ""] ?? "No registrado";
 }
 
 function formatDate(value: string) {
@@ -466,6 +478,7 @@ export default function Sales() {
                 <TableHead>Venta</TableHead>
                 <TableHead>Pedido</TableHead>
                 <TableHead>Fecha</TableHead>
+                <TableHead>Medio de pago</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Cortesías</TableHead>
                 <TableHead>Descuentos</TableHead>
@@ -489,6 +502,7 @@ export default function Sales() {
                     </TableCell>
                     <TableCell>#{sale.order_id}</TableCell>
                     <TableCell>{formatDate(sale.created_at)}</TableCell>
+                    <TableCell>{paymentMethodLabel(sale.payment_method)}</TableCell>
                     <TableCell>{formatQty(itemsCount)}</TableCell>
                     <TableCell>{formatCount(sale.courtesy_count)}</TableCell>
                     <TableCell>{formatCount(sale.discount_count)}</TableCell>

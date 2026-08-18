@@ -1,9 +1,9 @@
 param(
   [string]$AdminUser = "postgres",
   [string]$AdminPassword = "",
-  [string]$NewUser = "girona_user",
+  [string]$NewUser = "acai_user",
   [string]$NewPassword = "change_me",
-  [string]$NewDatabase = "girona_prod",
+  [string]$NewDatabase = "acai_prod",
   [string]$PgHost = "127.0.0.1",
   [int]$PgPort = 5432
 )

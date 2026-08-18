@@ -56,6 +56,7 @@ pnpm-debug.log*
 *.sql
 
 # --- Local runtime artifacts ---
+.local/postgresql/
 .python-version
 .envrc
 *.pid

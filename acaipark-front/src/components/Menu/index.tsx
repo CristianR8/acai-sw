@@ -223,8 +223,8 @@ const DEFAULT_BAR_CATEGORIES = new Set(
   ].map(categoryKey),
 );
 
-const STORAGE_KEY_BAR_CATEGORIES = "girona.menu.customBarCategories";
-const STORAGE_KEY_RESTAURANTE_CATEGORIES = "girona.menu.customRestauranteCategories";
+const STORAGE_KEY_BAR_CATEGORIES = "acai.menu.customBarCategories";
+const STORAGE_KEY_RESTAURANTE_CATEGORIES = "acai.menu.customRestauranteCategories";
 
 const RESTAURANTE_NAV = [
   { label: "Almuerzos", Icon: FaBowlFood },

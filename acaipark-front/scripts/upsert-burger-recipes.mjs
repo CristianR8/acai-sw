@@ -20,7 +20,7 @@ const burgerRecipes = [
     ],
   },
   {
-    menuName: "GIRONA BURGUER",
+    menuName: "ACAI BURGUER",
     ingredients: [
       { name: "PAN HAMBURGUESA", weight: 1, price: 0 },
       { name: "CARNE BURGUER", weight: 1, price: 0 },

@@ -38,6 +38,12 @@ def _auto_migrate_schema() -> None:
             conn.execute(
                 text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS customer_id INTEGER")
             )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30)")
+            )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_received NUMERIC(14, 2)")
+            )
             conn.execute(text("ALTER TABLE IF EXISTS pos_orders DROP COLUMN IF EXISTS waiter_id"))
             conn.execute(text("ALTER TABLE IF EXISTS sales DROP COLUMN IF EXISTS waiter_id"))
             conn.execute(text("DROP TABLE IF EXISTS waiters"))
@@ -94,7 +100,7 @@ def _init_db() -> None:
         models.Base.metadata.create_all(bind=db.engine)
         _auto_migrate_schema()
     except OperationalError as exc:
-        database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/girona_dev")
+        database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/acai_dev")
         logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")
         logger.error("DATABASE_URL=%s", database_url)
         if database_url.startswith("postgresql:///") or database_url.startswith("postgres:///"):

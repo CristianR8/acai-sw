@@ -324,6 +324,8 @@ class Sale(Base):
     courtesy_total = Column(Numeric(14, 2), nullable=False, default=0)
     service_total = Column(Numeric(14, 2), nullable=False, default=0)
     total = Column(Numeric(14, 2), nullable=False, default=0)
+    payment_method = Column(String(30), nullable=True)
+    cash_received = Column(Numeric(14, 2), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     order = relationship("PosOrder", back_populates="sale")

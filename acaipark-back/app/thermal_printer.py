@@ -5,11 +5,16 @@ import json
 import os
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
 THERMAL_WIDTH = 315
-THERMAL_PADDING = 12
+# 80 mm is the paper width, not the printable width. XP-80C-class printers
+# commonly expose about 72 mm of reliable print area, so reserve a wider
+# safety margin to avoid clipping text on the right edge.
+THERMAL_PADDING = 24
 THERMAL_CONTENT_WIDTH = THERMAL_WIDTH - (THERMAL_PADDING * 2)
 THERMAL_FONT_SIZE = 8.2
 THERMAL_LOGO_MAX_WIDTH = 150
@@ -78,10 +83,36 @@ if (-not $selectedEntry -or $selectedEntry.Score -le 0) {{
 Add-Type -AssemblyName System.Drawing
 $logo = if ($logoFile) {{ [System.Drawing.Image]::FromFile($logoFile) }} else {{ $null }}
 $font = New-Object System.Drawing.Font('Consolas', {THERMAL_FONT_SIZE}, [System.Drawing.FontStyle]::Regular)
+$emphasisFont = New-Object System.Drawing.Font('Consolas', 10.5, [System.Drawing.FontStyle]::Bold)
 $lines = $text -split "`r?`n"
 $measureBitmap = New-Object System.Drawing.Bitmap 1, 1
 $measureGraphics = [System.Drawing.Graphics]::FromImage($measureBitmap)
 $lineHeight = [Math]::Ceiling($font.GetHeight($measureGraphics)) + 1
+
+function Wrap-ThermalLine([string]$line, $graphics, $font, [int]$width) {{
+  if ([string]::IsNullOrEmpty($line)) {{ return @('') }}
+  $wrapped = @()
+  $remaining = $line.TrimEnd()
+  while ($remaining.Length -gt 0) {{
+    $fitLength = 0
+    $lastWhitespace = 0
+    for ($index = 0; $index -lt $remaining.Length; $index++) {{
+      if ($graphics.MeasureString($remaining.Substring(0, $index + 1), $font).Width -gt $width) {{ break }}
+      $fitLength = $index + 1
+      if ([char]::IsWhiteSpace($remaining[$index])) {{ $lastWhitespace = $fitLength }}
+    }}
+    if ($fitLength -eq 0) {{ $fitLength = 1 }}
+    $takeLength = if ($fitLength -lt $remaining.Length -and $lastWhitespace -gt 0) {{ $lastWhitespace }} else {{ $fitLength }}
+    $wrapped += $remaining.Substring(0, $takeLength).TrimEnd()
+    $remaining = $remaining.Substring($takeLength).TrimStart()
+  }}
+  return $wrapped
+}}
+
+$renderLines = @()
+foreach ($line in $lines) {{
+  $renderLines += Wrap-ThermalLine $line $measureGraphics $font {THERMAL_CONTENT_WIDTH}
+}}
 $logoWidth = 0; $logoHeight = 0
 if ($logo) {{
   $scale = [Math]::Min([double]{THERMAL_LOGO_MAX_WIDTH} / $logo.Width, [double]{THERMAL_LOGO_MAX_HEIGHT} / $logo.Height)
@@ -89,7 +120,11 @@ if ($logo) {{
   $logoWidth = [int][Math]::Round($logo.Width * $scale)
   $logoHeight = [int][Math]::Round($logo.Height * $scale)
 }}
-$pageHeight = [Math]::Max(180, 16 + $logoHeight + (($lines.Count + 2) * $lineHeight))
+$firstPageTop = 16 + $logoHeight + $(if ($logo) {{ 8 }} else {{ 0 }})
+# A normal ticket gets its exact height. Very large orders continue on extra
+# 16-inch pages instead of silently clipping after the first sheet.
+$emphasisLines = @($renderLines | Where-Object {{ $_ -like 'TOTAL A PAGAR:*' }}).Count
+$pageHeight = [Math]::Max(180, [Math]::Min(1600, $firstPageTop + (($renderLines.Count + 2) * $lineHeight) + ($emphasisLines * 6)))
 $measureGraphics.Dispose(); $measureBitmap.Dispose()
 
 $document = New-Object System.Drawing.Printing.PrintDocument
@@ -99,30 +134,67 @@ $document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.Pap
 $document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 $document.OriginAtMargins = $false
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+$lineIndex = 0
+$pageIndex = 0
 $document.add_PrintPage({{ param($sender, $event)
   $y = 0
-  if ($logo) {{
+  if ($pageIndex -eq 0 -and $logo) {{
     $x = [int][Math]::Round({THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $logoWidth) / 2))
     $event.Graphics.DrawImage($logo, $x, $y, $logoWidth, $logoHeight)
     $y += $logoHeight + 8
   }}
-  foreach ($line in $lines) {{
-    $event.Graphics.DrawString([string]$line, $font, [System.Drawing.Brushes]::Black, {THERMAL_PADDING}, $y)
-    $y += [Math]::Ceiling($font.GetHeight($event.Graphics)) + 1
+  elseif ($pageIndex -gt 0) {{
+    $continuation = '--- CONTINUA ---'
+    $continuationWidth = $event.Graphics.MeasureString($continuation, $font).Width
+    $continuationX = [Math]::Max({THERMAL_PADDING}, {THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $continuationWidth) / 2))
+    $event.Graphics.DrawString($continuation, $font, [System.Drawing.Brushes]::Black, $continuationX, $y)
+    $y += [Math]::Ceiling($font.GetHeight($event.Graphics)) + 3
   }}
-  $event.HasMorePages = $false
+  while ($lineIndex -lt $renderLines.Count -and ($y + $lineHeight) -le ($pageHeight - 16)) {{
+    $lineText = [string]$renderLines[$lineIndex]
+    $lineFont = if ($lineText -like 'TOTAL A PAGAR:*') {{ $emphasisFont }} else {{ $font }}
+    $actualLineHeight = [Math]::Ceiling($lineFont.GetHeight($event.Graphics)) + 1
+    if (($y + $actualLineHeight) -gt ($pageHeight - 16)) {{ break }}
+    $lineWidth = $event.Graphics.MeasureString($lineText, $lineFont).Width
+    $lineX = [Math]::Max({THERMAL_PADDING}, {THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $lineWidth) / 2))
+    $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, $lineX, $y)
+    $y += $actualLineHeight
+    $lineIndex++
+  }}
+  $pageIndex++
+  $event.HasMorePages = $lineIndex -lt $renderLines.Count
 }})
 $document.Print()
-$document.Dispose(); $font.Dispose(); if ($logo) {{ $logo.Dispose() }}
+$document.Dispose(); $font.Dispose(); $emphasisFont.Dispose(); if ($logo) {{ $logo.Dispose() }}
 @{{ printerName = $selectedEntry.Printer.Name; driverName = $selectedEntry.Printer.DriverName; portName = $selectedEntry.Printer.PortName }} | ConvertTo-Json -Compress
 """
 
 
+def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[str, str]:
+    agent_url = os.getenv("PRINT_AGENT_URL", "").strip().rstrip("/")
+    agent_token = os.getenv("PRINT_AGENT_TOKEN", "").strip()
+    if not agent_url or not agent_token:
+        raise RuntimeError("La impresión desde Docker requiere configurar el agente local.")
+
+    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5))}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{agent_url}/print",
+        data=payload,
+        headers={"Content-Type": "application/json", "X-Acai-Print-Token": agent_token},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=35) as response:
+            return json.loads(response.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"El agente de impresión rechazó el trabajo: {exc.read().decode('utf-8', errors='replace')}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"No se pudo conectar con el agente de impresión: {exc.reason}") from exc
+
+
 def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict[str, str]:
     if os.name != "nt":
-        raise RuntimeError(
-            "La impresión directa requiere el agente/backend ejecutándose en el PC Windows donde está instalada la impresora térmica."
-        )
+        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies)
 
     receipt_file = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".txt", delete=False
@@ -134,6 +206,10 @@ def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict
         script = _powershell_script()
         encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
         copies = max(1, min(copies, 5))
+        # Long, paginated orders can take longer for the Windows spooler to
+        # process. Keep the normal limit short while allowing large comandas
+        # enough time to finish instead of being cut off mid-print.
+        timeout_seconds = min(180, max(30, 20 + (len(text) // 40)))
         result: dict[str, str] = {}
         for _ in range(copies):
             completed = subprocess.run(
@@ -147,7 +223,7 @@ def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict
                 ],
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=timeout_seconds,
                 env={
                     **os.environ,
                     "ACAI_PRINTER_NAME_B64": base64.b64encode(

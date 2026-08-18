@@ -4,7 +4,7 @@ const API_BASE_URL =
 
 const especialesRecipes = [
   {
-    menuName: "TORRE GIRONA",
+    menuName: "TORRE ACAI",
     ingredients: [
       { name: "PURE DE PAPA", weight: 300, price: 0 },
       { name: "POLLO DESMECHADO", weight: 60, price: 0 },
@@ -45,7 +45,7 @@ const especialesRecipes = [
     ],
   },
   {
-    menuName: "ENSALADA GIRONA",
+    menuName: "ENSALADA ACAI",
     ingredients: [
       { name: "COGOLLO", weight: 50, price: 0 },
       { name: "ARANDANOS DESHIDRATADOS", weight: 30, price: 0 },

@@ -26,7 +26,7 @@ Ejecuta primero:
   .\deploy\windows-native\quick-install.ps1 -ProjectRoot "$ProjectRoot"
 
 o de forma manual:
-  .\deploy\windows-native\setup-native.ps1 -ProjectRoot "$ProjectRoot" -PgUser girona_user -PgPassword "TU_PASSWORD" -PgDatabase girona_prod
+  .\deploy\windows-native\setup-native.ps1 -ProjectRoot "$ProjectRoot" -PgUser acai_user -PgPassword "TU_PASSWORD" -PgDatabase acai_prod
 "@
 }
 

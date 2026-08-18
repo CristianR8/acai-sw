@@ -9,6 +9,13 @@ class UserRole(str, Enum):
     cashier = "cashier"
 
 
+class PaymentMethod(str, Enum):
+    cash = "cash"
+    card = "card"
+    dataphone = "dataphone"
+    transfer = "transfer"
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -426,6 +433,8 @@ class PosOrderClose(BaseModel):
     customer_identity_document: str | None = Field(default=None, min_length=1, max_length=100)
     customer_phone: str | None = Field(default=None, max_length=50)
     apply_inc: bool = False
+    payment_method: PaymentMethod = PaymentMethod.cash
+    cash_received: Decimal | None = Field(default=None, ge=0)
 
 
 class SaleItemOut(BaseModel):
@@ -456,6 +465,8 @@ class SaleOut(BaseModel):
     courtesy_count: int = 0
     service_total: Decimal
     total: Decimal
+    payment_method: PaymentMethod | None = None
+    cash_received: Decimal | None = None
     created_at: datetime
     electronic_invoice_status: str | None = None
     electronic_invoice_number: str | None = None

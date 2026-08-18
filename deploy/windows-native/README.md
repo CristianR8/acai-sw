@@ -39,13 +39,13 @@ C:\acaipark-sw
 Desde `C:\acaipark-sw`:
 
 ```powershell
-.\deploy\windows-native\create-postgres-db.ps1 -AdminUser postgres -NewUser girona_user -NewPassword "TU_PASSWORD" -NewDatabase girona_prod
+.\deploy\windows-native\create-postgres-db.ps1 -AdminUser postgres -NewUser acai_user -NewPassword "TU_PASSWORD" -NewDatabase acai_prod
 ```
 
 ## 3) Instalar app (backend + frontend)
 
 ```powershell
-.\deploy\windows-native\setup-native.ps1 -ProjectRoot "C:\acaipark-sw" -PgUser girona_user -PgPassword "TU_PASSWORD" -PgDatabase girona_prod
+.\deploy\windows-native\setup-native.ps1 -ProjectRoot "C:\acaipark-sw" -PgUser acai_user -PgPassword "TU_PASSWORD" -PgDatabase acai_prod
 ```
 
 Eso hace:
@@ -105,7 +105,7 @@ URLs:
 ```powershell
 cd C:\acaipark-sw
 git pull
-.\deploy\windows-native\setup-native.ps1 -ProjectRoot "C:\acaipark-sw" -PgUser girona_user -PgPassword "TU_PASSWORD" -PgDatabase girona_prod
+.\deploy\windows-native\setup-native.ps1 -ProjectRoot "C:\acaipark-sw" -PgUser acai_user -PgPassword "TU_PASSWORD" -PgDatabase acai_prod
 .\deploy\windows-native\start-all.ps1 -ProjectRoot "C:\acaipark-sw"
 ```
 
@@ -114,13 +114,13 @@ git pull
 Backup:
 
 ```powershell
-pg_dump -h 127.0.0.1 -p 5432 -U girona_user -d girona_prod > C:\acaipark-sw\backup.sql
+pg_dump -h 127.0.0.1 -p 5432 -U acai_user -d acai_prod > C:\acaipark-sw\backup.sql
 ```
 
 Restore:
 
 ```powershell
-psql -h 127.0.0.1 -p 5432 -U girona_user -d girona_prod -f C:\acaipark-sw\backup.sql
+psql -h 127.0.0.1 -p 5432 -U acai_user -d acai_prod -f C:\acaipark-sw\backup.sql
 ```
 
 ## 9) Instalador visual .exe con icono (Inno Setup)

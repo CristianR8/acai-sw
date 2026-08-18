@@ -17,8 +17,8 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-POSTGRES_DB="${POSTGRES_DB:-girona_prod}"
-POSTGRES_USER="${POSTGRES_USER:-girona_user}"
+POSTGRES_DB="${POSTGRES_DB:-acai_prod}"
+POSTGRES_USER="${POSTGRES_USER:-acai_user}"
 
 docker compose -f "$ROOT_DIR/docker-compose.yml" up -d db
 

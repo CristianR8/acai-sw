@@ -149,6 +149,17 @@ def _build_sale_receipt_text(
         os.getenv("POS_RECEIPT_FOOTER")
         or "Gracias por tu compra. Te esperamos pronto."
     ).strip()
+    payment_labels = {
+        "cash": "EFECTIVO",
+        "card": "DATAFONO",
+        "dataphone": "DATAFONO",
+        "transfer": "TRANSFERENCIA",
+    }
+    payment_method = payment_labels.get((sale.payment_method or "").lower(), "")
+    gross_total = sum(
+        (Decimal(item.quantity) * Decimal(item.unit_price) for item in order.items),
+        Decimal("0"),
+    )
 
     lines = [business_name.upper()]
     if tax_id:
@@ -162,19 +173,20 @@ def _build_sale_receipt_text(
         [
             separator,
             f"RECIBO DE VENTA #{sale.id}",
-            f"Pedido: #{order.id}",
             f"Fecha: {created_local}",
+            "Vendedor: ACAI PARK",
         ]
     )
     if customer:
         lines.append(f"Cliente: {customer.name}")
-        lines.append(f"Documento: {customer.identity_document}")
+        lines.append(f"CC: {customer.identity_document}")
         if customer.phone:
             lines.append(f"Telefono: {customer.phone}")
     else:
         lines.append("Cliente: Consumidor final")
-    if order.table:
-        lines.append(f"Punto: {order.table.name}")
+        lines.append("CC:")
+    if payment_method:
+        lines.append(f"Pago: {payment_method}")
     lines.append(separator)
 
     for item in order.items:
@@ -186,17 +198,25 @@ def _build_sale_receipt_text(
             f" = {_format_cop(Decimal(item.line_total))}"
         )
 
-    lines.extend([separator, f"Subtotal: {_format_cop(Decimal(sale.subtotal))}"])
-    if Decimal(sale.discount_total) > 0:
-        lines.append(f"Descuentos: {_format_cop(Decimal(sale.discount_total))}")
+    lines.extend(
+        [
+            separator,
+            f"Total bruto: {_format_cop(gross_total)}",
+            f"Descuentos: {_format_cop(Decimal(sale.discount_total))}",
+            f"Subtotal: {_format_cop(Decimal(sale.subtotal))}",
+        ]
+    )
     if Decimal(sale.tax_total) > 0:
         lines.append(f"INC: {_format_cop(Decimal(sale.tax_total))}")
     if Decimal(sale.service_total) > 0:
         lines.append(f"Servicio: {_format_cop(Decimal(sale.service_total))}")
     lines.extend(
         [
-            f"TOTAL: {_format_cop(Decimal(sale.total))}",
+            "=" * width,
+            f"TOTAL A PAGAR: {_format_cop(Decimal(sale.total))}",
+            "=" * width,
             separator,
+            "Este documento no reemplaza la factura de venta ni el documento equivalente, es un soporte de uso contable",
             footer,
             "",
         ]
@@ -359,10 +379,15 @@ def _create_sale_from_order(
     db_session: Session,
     order: models.PosOrder,
     customer_id: int | None = None,
+    payment_method: str | None = None,
+    cash_received: Decimal | None = None,
 ) -> models.Sale:
     if order.sale:
         if customer_id is not None:
             order.sale.customer_id = customer_id
+        if payment_method is not None:
+            order.sale.payment_method = payment_method
+            order.sale.cash_received = cash_received if payment_method == "cash" else None
         return order.sale
 
     sale_subtotal = Decimal("0")
@@ -400,6 +425,8 @@ def _create_sale_from_order(
         courtesy_total=order.courtesy_total,
         service_total=order.service_total,
         total=sale_subtotal + sale_tax_total + Decimal(order.service_total),
+        payment_method=payment_method,
+        cash_received=cash_received if payment_method == "cash" else None,
     )
     db_session.add(sale)
     db_session.flush()
@@ -671,6 +698,8 @@ def mark_order_closed(
         db_session,
         order,
         customer_id=customer_id,
+        payment_method=payload.payment_method.value if payload is not None else "cash",
+        cash_received=payload.cash_received if payload is not None else None,
     )
     db_session.add(order)
     db_session.commit()

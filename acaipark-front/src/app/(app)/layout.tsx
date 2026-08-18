@@ -1,10 +1,12 @@
 import { Header } from "@/components/Layouts/header";
 import { Sidebar } from "@/components/Layouts/sidebar";
 import { RoleGuard } from "@/components/Auth/RoleGuard";
+import { PointerScroll } from "@/components/PointerScroll";
 import type { PropsWithChildren } from "react";
 
 export default function AppLayout({ children }: PropsWithChildren) {
   return (
+    <PointerScroll>
     <div className="flex min-h-screen">
       <Sidebar />
 
@@ -16,5 +18,6 @@ export default function AppLayout({ children }: PropsWithChildren) {
         </main>
       </div>
     </div>
+    </PointerScroll>
   );
 }

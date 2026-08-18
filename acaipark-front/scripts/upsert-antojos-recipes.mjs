@@ -4,7 +4,7 @@ const API_BASE_URL =
 
 const antojosRecipes = [
   {
-    menuName: "DESGRANADO GIRONA",
+    menuName: "DESGRANADO ACAI",
     ingredients: [
       { name: "PAPAS FRANCESA", weight: 150, price: 0 },
       { name: "MAIZ", weight: 100, price: 0 },
@@ -17,7 +17,7 @@ const antojosRecipes = [
     ],
   },
   {
-    menuName: "PAPAS GIRONA",
+    menuName: "PAPAS ACAI",
     ingredients: [
       { name: "PAPA CRIOLLA", weight: 150, price: 0 },
       { name: "CARNE DESMECADA", weight: 60, price: 0 },

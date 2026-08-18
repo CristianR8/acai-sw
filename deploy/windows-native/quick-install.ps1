@@ -21,11 +21,11 @@ function Read-SecretText {
 $pgAdminUser = Read-Host "Usuario admin Postgres (default: postgres)"
 if ([string]::IsNullOrWhiteSpace($pgAdminUser)) { $pgAdminUser = "postgres" }
 
-$pgUser = Read-Host "Usuario app DB (default: girona_user)"
-if ([string]::IsNullOrWhiteSpace($pgUser)) { $pgUser = "girona_user" }
+$pgUser = Read-Host "Usuario app DB (default: acai_user)"
+if ([string]::IsNullOrWhiteSpace($pgUser)) { $pgUser = "acai_user" }
 
-$pgDb = Read-Host "Base de datos (default: girona_prod)"
-if ([string]::IsNullOrWhiteSpace($pgDb)) { $pgDb = "girona_prod" }
+$pgDb = Read-Host "Base de datos (default: acai_prod)"
+if ([string]::IsNullOrWhiteSpace($pgDb)) { $pgDb = "acai_prod" }
 
 $pgPassword = Read-SecretText -Prompt "Password DB para usuario '$pgUser'"
 if ([string]::IsNullOrWhiteSpace($pgPassword)) {
