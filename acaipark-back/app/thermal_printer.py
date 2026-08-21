@@ -155,9 +155,9 @@ $document.add_PrintPage({{ param($sender, $event)
     $lineFont = if ($lineText -like 'TOTAL A PAGAR:*') {{ $emphasisFont }} else {{ $font }}
     $actualLineHeight = [Math]::Ceiling($lineFont.GetHeight($event.Graphics)) + 1
     if (($y + $actualLineHeight) -gt ($pageHeight - 16)) {{ break }}
-    $lineWidth = $event.Graphics.MeasureString($lineText, $lineFont).Width
-    $lineX = [Math]::Max({THERMAL_PADDING}, {THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $lineWidth) / 2))
-    $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, $lineX, $y)
+    # Align receipt content to the printable left margin. Centering every line
+    # makes narrow 80 mm printers appear shifted to the right.
+    $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, {THERMAL_PADDING}, $y)
     $y += $actualLineHeight
     $lineIndex++
   }}
