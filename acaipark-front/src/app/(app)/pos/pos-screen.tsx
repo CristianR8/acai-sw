@@ -22,6 +22,7 @@ import { HiOutlineCash } from "react-icons/hi";
 import { RiProhibited2Line } from "react-icons/ri";
 import GuidedOrderBuilder, { type GuidedOrder } from "@/components/Pos/GuidedOrderBuilder";
 import { useCurrentUserRole } from "@/hooks/use-current-user-role";
+import { readAuth } from "@/lib/auth/storage";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -624,7 +625,13 @@ export default function PosScreen() {
     if (!window.confirm("¿Limpiar historial de pedidos finalizados?")) return;
     setClearFinishedStatus("loading");
     try {
-      const res = await fetch("/api/pos/orders/finished", { method: "DELETE" });
+      const auth = readAuth();
+      const res = await fetch("/api/pos/orders/finished", {
+        method: "DELETE",
+        headers: auth?.accessToken
+          ? { Authorization: `${auth.tokenType} ${auth.accessToken}` }
+          : undefined,
+      });
       const payload = (await res.json().catch(() => null)) as any;
       if (!res.ok) {
         window.alert(
@@ -642,6 +649,7 @@ export default function PosScreen() {
         persistHiddenFinishedOrderIds(next);
         return next;
       });
+      await loadOrders();
     } catch {
       window.alert("Error limpiando el historial.");
     } finally {
@@ -1073,6 +1081,7 @@ export default function PosScreen() {
         return;
       }
       await loadOrders();
+      openPaymentModal(payload as PosOrderOut);
       setCart({});
       setGuidedEditDraft(null);
       setNoteInput("");
@@ -1096,6 +1105,7 @@ export default function PosScreen() {
 
   return (
     <div className="flex flex-col gap-4">
+      {false ? (
       <div className="rounded-[10px] border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div>
@@ -1280,6 +1290,7 @@ export default function PosScreen() {
           </Table>
         )}
       </div>
+      ) : null}
 
       {isAdministrator ? (
         <div className="mt-6 rounded-[10px] border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">

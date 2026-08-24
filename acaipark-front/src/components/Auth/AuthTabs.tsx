@@ -16,10 +16,7 @@ function isActive(pathname: string, href: string) {
 export default function AuthTabs() {
   const pathname = usePathname() ?? "";
 
-  const tabs = [
-    { href: "/auth/sign-in", label: "Iniciar sesión" },
-    { href: "/auth/sign-up", label: "Registrarse" },
-  ] as const;
+  const tabs = [{ href: "/auth/sign-in", label: "Iniciar sesión" }] as const;
 
   return (
     <div className="mb-6">

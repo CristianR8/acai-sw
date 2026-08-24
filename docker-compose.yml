@@ -1,3 +1,5 @@
+name: acai-sw
+
 services:
   db:
     image: postgres:16
@@ -14,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - acai_shared
 
   backend:
     build:
@@ -24,7 +28,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-acai_user}:${POSTGRES_PASSWORD:-acai_pass_change_me}@db:5432/${POSTGRES_DB:-acai_prod}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-acai_user}:${POSTGRES_PASSWORD:-acai_pass_change_me}@acaipark-db:5432/${POSTGRES_DB:-acai_prod}
       AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-1}
       AUTO_MIGRATE_SCHEMA: ${AUTO_MIGRATE_SCHEMA:-1}
       FACTUS_ENABLED: ${FACTUS_ENABLED:-1}
@@ -70,6 +74,9 @@ services:
       PRINT_AGENT_TOKEN: ${PRINT_AGENT_TOKEN:-}
     ports:
       - "8000:8000"
+    networks:
+      - default
+      - acai_shared
 
   frontend:
     build:
@@ -89,3 +96,7 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  acai_shared:
+    name: acai_shared

@@ -40,13 +40,17 @@ function errorToJson(error: unknown) {
   return { message: String(error) };
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const backendBaseUrl = getBackendBaseUrl();
   const url = toAbsoluteUrl(backendBaseUrl, "/pos/orders/finished");
 
   let response: Response;
   try {
-    response = await fetch(url, { method: "DELETE" });
+    const authorization = request.headers.get("authorization");
+    response = await fetch(url, {
+      method: "DELETE",
+      headers: authorization ? { authorization } : undefined,
+    });
   } catch (error) {
     return NextResponse.json(
       {

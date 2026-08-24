@@ -88,6 +88,12 @@ def _auto_migrate_schema() -> None:
                     "ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'administrator'"
                 )
             )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS pos_orders "
+                    "ADD COLUMN IF NOT EXISTS history_cleared BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
     except Exception as exc:
         logger.warning("Auto-migration skipped/failed: %s", exc)
 

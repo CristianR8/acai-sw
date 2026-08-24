@@ -21,6 +21,18 @@ export function storeAuth(auth: StoredAuth, remember: boolean) {
   const storage = getStorage(remember);
   if (!storage) return;
 
+  // A previous login may have been stored in the other browser storage.
+  // Remove it first so readAuth never selects a stale token over this login.
+  for (const browserStorage of [
+    window.localStorage,
+    window.sessionStorage,
+  ]) {
+    browserStorage.removeItem(ACCESS_TOKEN_KEY);
+    browserStorage.removeItem(TOKEN_TYPE_KEY);
+    browserStorage.removeItem(USER_ROLE_KEY);
+    browserStorage.removeItem(REMEMBER_AUTH_KEY);
+  }
+
   storage.setItem(ACCESS_TOKEN_KEY, auth.accessToken);
   storage.setItem(TOKEN_TYPE_KEY, auth.tokenType);
   if (auth.role) storage.setItem(USER_ROLE_KEY, auth.role);

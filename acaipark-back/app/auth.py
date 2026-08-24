@@ -80,30 +80,12 @@ def get_current_user(
         )
     return _ensure_profile_defaults(db_user, db_session)
 
-@router.post("/signup", response_model=schemas.UserOut)
-def signup(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
-
-    existing = db.query(models.User).filter(models.User.email == user.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    new_user = models.User(
-        email=user.email,
-        hashed_password=security.hash_password(user.password),
-        full_name=_default_name_from_email(user.email),
-        profile_photo_url=DEFAULT_PROFILE_PHOTO_URL,
-        role=user.role.value,
+@router.post("/signup", status_code=status.HTTP_403_FORBIDDEN)
+def signup():
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="El registro público está deshabilitado en la aplicación administrativa.",
     )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {
-        "id": new_user.id,
-        "email": new_user.email,
-        "name": new_user.full_name or DEFAULT_PROFILE_NAME,
-        "profile_photo_url": new_user.profile_photo_url,
-        "role": new_user.role,
-    }
 
 @router.post("/login", response_model=schemas.Token)
 def login(user: schemas.UserCreate, db: Session = Depends(db.get_db)):

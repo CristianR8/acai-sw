@@ -252,6 +252,7 @@ class PosOrder(Base):
     id = Column(Integer, primary_key=True, index=True)
     table_id = Column(Integer, ForeignKey("pos_tables.id"), nullable=False, index=True)
     status = Column(String, nullable=False, index=True, default="open")  # open|sent|delivered|closed|void
+    history_cleared = Column(Boolean, nullable=False, default=False, index=True)
     subtotal = Column(Numeric(14, 2), nullable=False, default=0)
     tax_total = Column(Numeric(14, 2), nullable=False, default=0)
     discount_total = Column(Numeric(14, 2), nullable=False, default=0)

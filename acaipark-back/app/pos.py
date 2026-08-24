@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import db, models, schemas
+from . import auth, db, models, schemas
 from .thermal_printer import print_thermal_text
 
 router = APIRouter(prefix="/pos", tags=["pos"])
@@ -580,6 +580,7 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
 def list_orders(db_session: Session = Depends(db.get_db)):
     return (
         db_session.query(models.PosOrder)
+        .filter(models.PosOrder.history_cleared == False)  # noqa: E712
         .order_by(models.PosOrder.id.desc())
         .limit(200)
         .all()
@@ -587,13 +588,21 @@ def list_orders(db_session: Session = Depends(db.get_db)):
 
 
 @router.delete("/orders/finished")
-def clear_finished_orders(db_session: Session = Depends(db.get_db)):
+def clear_finished_orders(
+    db_session: Session = Depends(db.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    if current_user.role != "administrator":
+        raise HTTPException(status_code=403, detail="Permiso de administrador requerido")
     cleared = (
-        db_session.query(func.count(models.PosOrder.id))
-        .filter(models.PosOrder.status.in_(["closed", "void"]))
-        .scalar()
-        or 0
+        db_session.query(models.PosOrder)
+        .filter(
+            models.PosOrder.status.in_(["closed", "void"]),
+            models.PosOrder.history_cleared == False,  # noqa: E712
+        )
+        .update({models.PosOrder.history_cleared: True}, synchronize_session=False)
     )
+    db_session.commit()
     return {"cleared": int(cleared)}
 
 
