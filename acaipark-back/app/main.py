@@ -23,6 +23,11 @@ def _auto_migrate_schema() -> None:
                     "ADD COLUMN IF NOT EXISTS is_purchase_registered BOOLEAN NOT NULL DEFAULT FALSE"
                 )
             )
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS category VARCHAR"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS presentation VARCHAR"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS grams_per_ice_cream NUMERIC(14, 4)"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS topping_cost NUMERIC(14, 4)"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)"))
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS menu_items "
@@ -94,6 +99,7 @@ def _auto_migrate_schema() -> None:
                     "ADD COLUMN IF NOT EXISTS history_cleared BOOLEAN NOT NULL DEFAULT FALSE"
                 )
             )
+            conn.execute(text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS inventory_consumed BOOLEAN NOT NULL DEFAULT FALSE"))
     except Exception as exc:
         logger.warning("Auto-migration skipped/failed: %s", exc)
 

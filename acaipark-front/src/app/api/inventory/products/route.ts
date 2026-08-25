@@ -5,6 +5,11 @@ type InventoryProductCreateBody = {
   sku?: string | null;
   kind?: "ingredient" | "material" | "product";
   unit?: string | null;
+  category?: string | null;
+  presentation?: string | null;
+  grams_per_ice_cream?: string | number | null;
+  topping_cost?: string | number | null;
+  supplier_id?: number | null;
   initial_quantity?: string | number;
   total_cost?: string | number;
   is_active?: boolean;
@@ -137,6 +142,11 @@ export async function POST(request: Request) {
         sku: body.sku ?? null,
         kind,
         unit,
+        category: body.category ?? null,
+        presentation: body.presentation ?? null,
+        grams_per_ice_cream: body.grams_per_ice_cream ?? null,
+        topping_cost: body.topping_cost ?? null,
+        supplier_id: body.supplier_id ?? null,
         initial_quantity,
         total_cost,
         is_active: body.is_active ?? true,

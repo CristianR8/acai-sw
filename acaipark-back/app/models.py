@@ -47,6 +47,11 @@ class InventoryProduct(Base):
     sku = Column(String, unique=True, index=True, nullable=True)
     kind = Column(String, index=True, nullable=False, default="ingredient")
     unit = Column(String, nullable=True)
+    category = Column(String, nullable=True, index=True)
+    presentation = Column(String, nullable=True)
+    grams_per_ice_cream = Column(Numeric(14, 4), nullable=True)
+    topping_cost = Column(Numeric(14, 4), nullable=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True, index=True)
 
     on_hand = Column(Numeric(14, 4), nullable=False, default=0)
 
@@ -60,6 +65,11 @@ class InventoryProduct(Base):
     movements = relationship("StockMovement", back_populates="product")
     purchase_items = relationship("PurchaseItem", back_populates="product")
     recipe_items = relationship("RecipeItem", back_populates="product")
+    supplier = relationship("Supplier")
+
+    @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
 
 
 class StockMovement(Base):
@@ -253,6 +263,7 @@ class PosOrder(Base):
     table_id = Column(Integer, ForeignKey("pos_tables.id"), nullable=False, index=True)
     status = Column(String, nullable=False, index=True, default="open")  # open|sent|delivered|closed|void
     history_cleared = Column(Boolean, nullable=False, default=False, index=True)
+    inventory_consumed = Column(Boolean, nullable=False, default=False, index=True)
     subtotal = Column(Numeric(14, 2), nullable=False, default=0)
     tax_total = Column(Numeric(14, 2), nullable=False, default=0)
     discount_total = Column(Numeric(14, 2), nullable=False, default=0)

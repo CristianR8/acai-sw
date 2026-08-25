@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+import unicodedata
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from . import auth, db, models, schemas
 from .thermal_printer import print_thermal_text
@@ -16,6 +17,52 @@ router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger("uvicorn.error")
 
 INC_RATE = Decimal("0.08")
+STORE_TIMEZONE = timezone(timedelta(hours=-5), name="America/Bogota")
+
+
+def _search_key(value: str) -> str:
+    return "".join(
+        character for character in unicodedata.normalize("NFD", value.casefold())
+        if unicodedata.category(character) != "Mn"
+    )
+
+
+# Exact labels emitted by Toma de pedidos -> purchased inventory SKU.
+GUIDED_SELECTION_SKUS = {
+    "arandanos": "TOP-001", "avena": "TOP-002", "banano": "TOP-003",
+    "cereza": "TOP-004", "coco deshidratado": "TOP-007", "durazno": "TOP-008",
+    "fresa": "TOP-009", "granola chocolate": "TOP-010", "granola": "TOP-011",
+    "kiwi": "TOP-012", "almendras": "TOP-013", "leche en polvo": "TOP-014",
+    "mani": "TOP-015", "oreo": "TOP-018", "mantequilla de almendras": "TOP-019",
+    "pistacho": "TOP-021", "mantequilla de mani": "TOP-024",
+    "leche condensada": "TOP-025", "arequipe sin azucar": "TOP-026",
+}
+
+
+def _guided_selection_counts(note: str | None, quantity: Decimal) -> dict[str, Decimal]:
+    """Count only explicit Toppings/Salsas choices from Toma de pedidos."""
+    counts: dict[str, Decimal] = {}
+    configured_lines = 0
+    for line in (note or "").splitlines():
+        line_counts: dict[str, Decimal] = {}
+        has_choices = False
+        for segment in line.split("|"):
+            label, separator, raw_choices = segment.partition(":")
+            if not separator or _search_key(label).strip() not in {"toppings", "salsas"}:
+                continue
+            has_choices = True
+            for choice in raw_choices.split(","):
+                sku = GUIDED_SELECTION_SKUS.get(_search_key(choice).strip())
+                if sku:
+                    line_counts[sku] = line_counts.get(sku, Decimal("0")) + Decimal("1")
+        if has_choices:
+            configured_lines += 1
+            for sku, count in line_counts.items():
+                counts[sku] = counts.get(sku, Decimal("0")) + count
+    if not configured_lines:
+        return {}
+    multiplier = quantity / Decimal(configured_lines)
+    return {sku: count * multiplier for sku, count in counts.items()}
 
 
 BAR_CATEGORY_KEYS = {
@@ -100,6 +147,13 @@ def _format_cop(value: Decimal) -> str:
     return f"${int(rounded):,}".replace(",", ".")
 
 
+def _store_time(value: datetime) -> datetime:
+    """Render persisted UTC timestamps in the same timezone as the POS PC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(STORE_TIMEZONE)
+
+
 def _build_ticket_text(
     *,
     order_id: int,
@@ -108,7 +162,7 @@ def _build_ticket_text(
     created_at: datetime,
     items: list[models.PosOrderItem],
 ) -> str:
-    created_local = created_at.astimezone().strftime("%Y-%m-%d %H:%M")
+    created_local = _store_time(created_at).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "ACAIPARK POS",
         f"COMANDA #{order_id}",
@@ -140,7 +194,7 @@ def _build_sale_receipt_text(
     width = 40
     separator = "-" * width
     created_at = sale.created_at or order.closed_at or datetime.now(timezone.utc)
-    created_local = created_at.astimezone().strftime("%Y-%m-%d %H:%M")
+    created_local = _store_time(created_at).strftime("%Y-%m-%d %H:%M:%S")
     business_name = (os.getenv("POS_RECEIPT_BUSINESS_NAME") or "ACAI PARK").strip()
     tax_id = (os.getenv("POS_RECEIPT_TAX_ID") or "").strip()
     address = (os.getenv("POS_RECEIPT_ADDRESS") or "").strip()
@@ -224,8 +278,8 @@ def _build_sale_receipt_text(
     return "\n".join(lines)
 
 
-def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int) -> None:
-    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies)
+def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, fast_text: bool = False) -> None:
+    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
 
 
 def _auto_print_comanda(
@@ -273,7 +327,7 @@ def _auto_print_comanda(
             items=zone_items,
         )
         try:
-            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies)
+            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, fast_text=True)
             logger.info(
                 "Comanda #%s enviada a impresora '%s' (zona=%s, items=%s)",
                 order_id,
@@ -458,6 +512,84 @@ def _create_sale_from_order(
         db_session.add(sale_item)
 
     return sale
+
+
+def _consume_order_inventory(db_session: Session, order: models.PosOrder) -> None:
+    """Consume each ordered item's recipe exactly once when the order is paid."""
+    if order.inventory_consumed:
+        return
+
+    menu_quantities: dict[int, Decimal] = {}
+    for item in order.items:
+        menu_quantities[item.menu_item_id] = (
+            menu_quantities.get(item.menu_item_id, Decimal("0")) + Decimal(item.quantity)
+        )
+
+    if not menu_quantities:
+        order.inventory_consumed = True
+        return
+
+    recipes = (
+        db_session.query(models.Recipe)
+        .options(joinedload(models.Recipe.items).joinedload(models.RecipeItem.product))
+        .filter(models.Recipe.menu_item_id.in_(menu_quantities.keys()))
+        .all()
+    )
+    for recipe in recipes:
+        sold_quantity = menu_quantities.get(recipe.menu_item_id, Decimal("0"))
+        yield_quantity = Decimal(recipe.yield_quantity or 1)
+        multiplier = sold_quantity / yield_quantity
+        for recipe_item in recipe.items:
+            required = Decimal(recipe_item.quantity) * multiplier
+            required *= Decimal("1") + Decimal(recipe_item.waste_pct or 0)
+            product = recipe_item.product
+            next_on_hand = Decimal(product.on_hand) - required
+            if next_on_hand < 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Stock insuficiente para {product.name}",
+                )
+            product.on_hand = next_on_hand
+            db_session.add(
+                models.StockMovement(
+                    product_id=product.id,
+                    movement_type="out",
+                    quantity=-required,
+                    unit_cost=product.average_cost,
+                    reason="sale",
+                    reference_type="order",
+                    reference_id=order.id,
+                )
+            )
+            db_session.add(product)
+
+    topping_products = {
+        product.sku: product
+        for product in db_session.query(models.InventoryProduct).filter(
+            models.InventoryProduct.is_active.is_(True),
+            models.InventoryProduct.sku.in_(GUIDED_SELECTION_SKUS.values()),
+        ).all()
+    }
+    for item in order.items:
+        selected = _guided_selection_counts(item.note, Decimal(item.quantity))
+        for sku, selected_count in selected.items():
+            product = topping_products.get(sku)
+            if product is None or not product.grams_per_ice_cream:
+                continue
+            required = Decimal(product.grams_per_ice_cream) * selected_count
+            next_on_hand = Decimal(product.on_hand) - required
+            if next_on_hand < 0:
+                raise HTTPException(status_code=409, detail=f"Stock insuficiente para {product.name}")
+            product.on_hand = next_on_hand
+            db_session.add(models.StockMovement(
+                product_id=product.id, movement_type="out", quantity=-required,
+                unit_cost=product.average_cost, reason="sale", reference_type="order",
+                reference_id=order.id,
+            ))
+            db_session.add(product)
+
+    order.inventory_consumed = True
+    db_session.add(order)
 
 
 @router.post("/tables", response_model=schemas.PosTableOut, status_code=201)
@@ -693,6 +825,7 @@ def mark_order_closed(
 
     apply_inc = bool(payload.apply_inc) if payload is not None else False
     _recompute_order_for_close(order, apply_inc=apply_inc)
+    _consume_order_inventory(db_session, order)
 
     now = datetime.now(timezone.utc)
     order.closed_at = now

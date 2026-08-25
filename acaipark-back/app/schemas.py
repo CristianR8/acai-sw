@@ -67,6 +67,11 @@ class InventoryProductBase(BaseModel):
     sku: str | None = Field(default=None, max_length=100)
     kind: InventoryProductKind = InventoryProductKind.ingredient
     unit: str | None = Field(default=None, max_length=20)
+    category: str | None = Field(default=None, max_length=100)
+    presentation: str | None = Field(default=None, max_length=100)
+    grams_per_ice_cream: Decimal | None = Field(default=None, ge=0)
+    topping_cost: Decimal | None = Field(default=None, ge=0)
+    supplier_id: int | None = None
     is_active: bool = True
 
 
@@ -80,6 +85,11 @@ class InventoryProductUpdate(BaseModel):
     sku: str | None = Field(default=None, max_length=100)
     kind: InventoryProductKind | None = None
     unit: str | None = Field(default=None, max_length=20)
+    category: str | None = Field(default=None, max_length=100)
+    presentation: str | None = Field(default=None, max_length=100)
+    grams_per_ice_cream: Decimal | None = Field(default=None, ge=0)
+    topping_cost: Decimal | None = Field(default=None, ge=0)
+    supplier_id: int | None = None
     is_active: bool | None = None
     on_hand: Decimal | None = None
     total_cost: Decimal | None = Field(default=None, ge=0)
@@ -91,6 +101,7 @@ class InventoryProductOut(InventoryProductBase):
     average_cost: Decimal
     last_cost: Decimal
     created_at: datetime
+    supplier_name: str | None = None
 
     class Config:
         orm_mode = True

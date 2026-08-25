@@ -130,6 +130,11 @@ def create_product(
     product.sku = sku
     product.kind = kind
     product.unit = unit
+    product.category = payload.category.strip() if payload.category else None
+    product.presentation = payload.presentation.strip() if payload.presentation else None
+    product.grams_per_ice_cream = payload.grams_per_ice_cream
+    product.topping_cost = payload.topping_cost
+    product.supplier_id = payload.supplier_id
     product.is_active = payload.is_active
     product.on_hand = qty
     product.average_cost = unit_cost
@@ -465,6 +470,7 @@ def create_purchase(
         supplier_id = resolve_supplier_id(item.supplier_id)
         if supplier_id is not None:
             supplier_ids.add(supplier_id)
+            product.supplier_id = supplier_id
         qty = _as_decimal(item.quantity)
         unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
         line_total = (qty * unit_cost).quantize(Decimal("1"))

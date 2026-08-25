@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import json
 import os
 import subprocess
@@ -53,34 +54,29 @@ function Normalize-PrinterValue([string]$value) {{
   return (($builder.ToString().ToLowerInvariant() -replace '[^a-z0-9]+', ' ').Trim())
 }}
 
-function Get-PrinterScore($printer, [string]$preferredNormalized) {{
-  $name = Normalize-PrinterValue $printer.Name
-  $driver = Normalize-PrinterValue $printer.DriverName
-  $port = Normalize-PrinterValue $printer.PortName
-  $combined = "$name $driver $port"
-  if ($combined -match 'onenote|pdf|xps|fax|microsoft print') {{ return -1000 }}
+function Get-PrinterScore([string]$printerName, [string]$preferredNormalized) {{
+  $name = Normalize-PrinterValue $printerName
+  if ($name -match 'onenote|pdf|xps|fax|microsoft print') {{ return -1000 }}
   $score = 0
   if ($preferredNormalized) {{
     if ($name -eq $preferredNormalized) {{ $score += 1000 }}
     elseif ($name -like "*$preferredNormalized*" -or $preferredNormalized -like "*$name*") {{ $score += 800 }}
-    elseif ($driver -like "*$preferredNormalized*") {{ $score += 600 }}
   }}
-  if ($combined -match 'xp.?80|thermal|receipt|recept|ticket|pos|esc pos|xprinter') {{ $score += 220 }}
-  if ($port -match '^(usb|lpt|com)') {{ $score += 80 }}
-  if (-not $printer.WorkOffline) {{ $score += 25 }}
-  if ($printer.Default) {{ $score += 10 }}
+  if ($name -match 'xp.?80|thermal|receipt|recept|ticket|pos|esc pos|xprinter') {{ $score += 220 }}
   return $score
 }}
 
+$printerDiscoveryStarted = [Diagnostics.Stopwatch]::StartNew()
+Add-Type -AssemblyName System.Drawing
 $preferredNormalized = Normalize-PrinterValue $preferred
-$printers = Get-CimInstance Win32_Printer | Select-Object Name,DriverName,Default,PortName,WorkOffline
-$selectedEntry = $printers | ForEach-Object {{ [PSCustomObject]@{{ Printer = $_; Score = Get-PrinterScore $_ $preferredNormalized }} }} | Sort-Object Score -Descending | Select-Object -First 1
+$printers = @([System.Drawing.Printing.PrinterSettings]::InstalledPrinters | ForEach-Object {{ [string]$_ }})
+$selectedEntry = $printers | ForEach-Object {{ [PSCustomObject]@{{ Name = $_; Score = Get-PrinterScore $_ $preferredNormalized }} }} | Sort-Object Score -Descending | Select-Object -First 1
 if (-not $selectedEntry -or $selectedEntry.Score -le 0) {{
-  $available = (@($printers | ForEach-Object {{ "$($_.Name) [$($_.DriverName)]" }}) -join '; ')
+  $available = ($printers -join '; ')
   throw "No se encontró una impresora térmica válida. Instaladas: $available"
 }}
+$printerDiscoveryStarted.Stop()
 
-Add-Type -AssemblyName System.Drawing
 $logo = if ($logoFile) {{ [System.Drawing.Image]::FromFile($logoFile) }} else {{ $null }}
 $font = New-Object System.Drawing.Font('Consolas', {THERMAL_FONT_SIZE}, [System.Drawing.FontStyle]::Regular)
 $emphasisFont = New-Object System.Drawing.Font('Consolas', 10.5, [System.Drawing.FontStyle]::Bold)
@@ -128,8 +124,8 @@ $pageHeight = [Math]::Max(180, [Math]::Min(1600, $firstPageTop + (($renderLines.
 $measureGraphics.Dispose(); $measureBitmap.Dispose()
 
 $document = New-Object System.Drawing.Printing.PrintDocument
-$document.PrinterSettings.PrinterName = $selectedEntry.Printer.Name
-if (-not $document.PrinterSettings.IsValid) {{ throw "La impresora seleccionada no es válida: $($selectedEntry.Printer.Name)" }}
+$document.PrinterSettings.PrinterName = $selectedEntry.Name
+if (-not $document.PrinterSettings.IsValid) {{ throw "La impresora seleccionada no es válida: $($selectedEntry.Name)" }}
 $document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('Thermal80Receipt', {THERMAL_WIDTH}, $pageHeight)
 $document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 $document.OriginAtMargins = $false
@@ -166,17 +162,17 @@ $document.add_PrintPage({{ param($sender, $event)
 }})
 $document.Print()
 $document.Dispose(); $font.Dispose(); $emphasisFont.Dispose(); if ($logo) {{ $logo.Dispose() }}
-@{{ printerName = $selectedEntry.Printer.Name; driverName = $selectedEntry.Printer.DriverName; portName = $selectedEntry.Printer.PortName }} | ConvertTo-Json -Compress
+@{{ printerName = $selectedEntry.Name; discoveryMs = $printerDiscoveryStarted.ElapsedMilliseconds }} | ConvertTo-Json -Compress
 """
 
 
-def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[str, str]:
+def _print_through_agent(*, text: str, printer_hint: str, copies: int, fast_text: bool) -> dict[str, str]:
     agent_url = os.getenv("PRINT_AGENT_URL", "").strip().rstrip("/")
     agent_token = os.getenv("PRINT_AGENT_TOKEN", "").strip()
     if not agent_url or not agent_token:
         raise RuntimeError("La impresión desde Docker requiere configurar el agente local.")
 
-    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5))}).encode("utf-8")
+    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5)), "fast_text": fast_text}).encode("utf-8")
     request = urllib.request.Request(
         f"{agent_url}/print",
         data=payload,
@@ -192,9 +188,46 @@ def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[s
         raise RuntimeError(f"No se pudo conectar con el agente de impresión: {exc.reason}") from exc
 
 
-def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict[str, str]:
+def _print_raw_windows(*, text: str, printer_name: str, copies: int) -> dict[str, str]:
+    """Send a kitchen comanda directly to the ESC/POS spooler without PowerShell."""
+    class DocInfo(ctypes.Structure):
+        _fields_ = [("pDocName", ctypes.c_wchar_p), ("pOutputFile", ctypes.c_wchar_p), ("pDatatype", ctypes.c_wchar_p)]
+
+    winspool = ctypes.WinDLL("winspool.drv", use_last_error=True)
+    handle = ctypes.c_void_p()
+    if not winspool.OpenPrinterW(printer_name, ctypes.byref(handle), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        for _ in range(max(1, min(copies, 5))):
+            document = DocInfo("ACAI PARK Comanda", None, "RAW")
+            if not winspool.StartDocPrinterW(handle, 1, ctypes.byref(document)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                if not winspool.StartPagePrinter(handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                try:
+                    # ESC @ initializes; ESC t 2 selects CP850; GS V cuts paper.
+                    payload = b"\x1b@\x1bt\x02" + text.encode("cp850", errors="replace") + b"\n\n\x1dV\x00"
+                    buffer = ctypes.create_string_buffer(payload)
+                    written = ctypes.c_ulong()
+                    if not winspool.WritePrinter(handle, buffer, len(payload), ctypes.byref(written)):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    if written.value != len(payload):
+                        raise RuntimeError("La impresora no recibió la comanda completa")
+                finally:
+                    winspool.EndPagePrinter(handle)
+            finally:
+                winspool.EndDocPrinter(handle)
+    finally:
+        winspool.ClosePrinter(handle)
+    return {"printerName": printer_name, "mode": "raw", "bytes": str(len(payload))}
+
+
+def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1, fast_text: bool = False) -> dict[str, str]:
     if os.name != "nt":
-        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies)
+        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
+    if fast_text:
+        return _print_raw_windows(text=text, printer_name=printer_hint, copies=copies)
 
     receipt_file = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".txt", delete=False
