@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import ctypes
 import json
 import os
 import subprocess
@@ -166,13 +165,13 @@ $document.Dispose(); $font.Dispose(); $emphasisFont.Dispose(); if ($logo) {{ $lo
 """
 
 
-def _print_through_agent(*, text: str, printer_hint: str, copies: int, fast_text: bool) -> dict[str, str]:
+def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[str, str]:
     agent_url = os.getenv("PRINT_AGENT_URL", "").strip().rstrip("/")
     agent_token = os.getenv("PRINT_AGENT_TOKEN", "").strip()
     if not agent_url or not agent_token:
         raise RuntimeError("La impresión desde Docker requiere configurar el agente local.")
 
-    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5)), "fast_text": fast_text}).encode("utf-8")
+    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5))}).encode("utf-8")
     request = urllib.request.Request(
         f"{agent_url}/print",
         data=payload,
@@ -188,46 +187,9 @@ def _print_through_agent(*, text: str, printer_hint: str, copies: int, fast_text
         raise RuntimeError(f"No se pudo conectar con el agente de impresión: {exc.reason}") from exc
 
 
-def _print_raw_windows(*, text: str, printer_name: str, copies: int) -> dict[str, str]:
-    """Send a kitchen comanda directly to the ESC/POS spooler without PowerShell."""
-    class DocInfo(ctypes.Structure):
-        _fields_ = [("pDocName", ctypes.c_wchar_p), ("pOutputFile", ctypes.c_wchar_p), ("pDatatype", ctypes.c_wchar_p)]
-
-    winspool = ctypes.WinDLL("winspool.drv", use_last_error=True)
-    handle = ctypes.c_void_p()
-    if not winspool.OpenPrinterW(printer_name, ctypes.byref(handle), None):
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        for _ in range(max(1, min(copies, 5))):
-            document = DocInfo("ACAI PARK Comanda", None, "RAW")
-            if not winspool.StartDocPrinterW(handle, 1, ctypes.byref(document)):
-                raise ctypes.WinError(ctypes.get_last_error())
-            try:
-                if not winspool.StartPagePrinter(handle):
-                    raise ctypes.WinError(ctypes.get_last_error())
-                try:
-                    # ESC @ initializes; ESC t 2 selects CP850; GS V cuts paper.
-                    payload = b"\x1b@\x1bt\x02" + text.encode("cp850", errors="replace") + b"\n\n\x1dV\x00"
-                    buffer = ctypes.create_string_buffer(payload)
-                    written = ctypes.c_ulong()
-                    if not winspool.WritePrinter(handle, buffer, len(payload), ctypes.byref(written)):
-                        raise ctypes.WinError(ctypes.get_last_error())
-                    if written.value != len(payload):
-                        raise RuntimeError("La impresora no recibió la comanda completa")
-                finally:
-                    winspool.EndPagePrinter(handle)
-            finally:
-                winspool.EndDocPrinter(handle)
-    finally:
-        winspool.ClosePrinter(handle)
-    return {"printerName": printer_name, "mode": "raw", "bytes": str(len(payload))}
-
-
-def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1, fast_text: bool = False) -> dict[str, str]:
+def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict[str, str]:
     if os.name != "nt":
-        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
-    if fast_text:
-        return _print_raw_windows(text=text, printer_name=printer_hint, copies=copies)
+        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies)
 
     receipt_file = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".txt", delete=False

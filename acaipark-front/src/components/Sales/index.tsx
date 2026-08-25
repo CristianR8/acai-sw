@@ -34,6 +34,8 @@ type SaleItem = {
 type Sale = {
   id: number;
   order_id: number;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
   subtotal: number | string;
   tax_total: number | string;
   discount_total: number | string;
@@ -477,6 +479,7 @@ export default function Sales() {
               <TableRow>
                 <TableHead>Venta</TableHead>
                 <TableHead>Pedido</TableHead>
+                <TableHead>Realizado por</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Medio de pago</TableHead>
                 <TableHead>Items</TableHead>
@@ -501,6 +504,20 @@ export default function Sales() {
                       #{sale.id}
                     </TableCell>
                     <TableCell>#{sale.order_id}</TableCell>
+                    <TableCell>
+                      {sale.created_by_name || sale.created_by_email ? (
+                        <div className="min-w-36">
+                          <p className="font-medium text-black dark:text-white">
+                            {sale.created_by_name || "Usuario"}
+                          </p>
+                          {sale.created_by_email ? (
+                            <p className="text-body text-xs">{sale.created_by_email}</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        "No registrado"
+                      )}
+                    </TableCell>
                     <TableCell>{formatDate(sale.created_at)}</TableCell>
                     <TableCell>{paymentMethodLabel(sale.payment_method)}</TableCell>
                     <TableCell>{formatQty(itemsCount)}</TableCell>

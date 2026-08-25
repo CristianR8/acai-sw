@@ -17,7 +17,6 @@ class PrintJob(BaseModel):
     text: str = Field(min_length=1, max_length=20_000)
     printer_hint: str = Field(min_length=1, max_length=256)
     copies: int = Field(default=1, ge=1, le=5)
-    fast_text: bool = False
 
 
 @app.get("/health")
@@ -31,6 +30,6 @@ def print_job(job: PrintJob, x_acai_print_token: str = Header(default="")) -> di
     if not expected_token or not hmac.compare_digest(x_acai_print_token, expected_token):
         raise HTTPException(status_code=401, detail="Token de impresión inválido")
     try:
-        return print_thermal_text(text=job.text, printer_hint=job.printer_hint, copies=job.copies, fast_text=job.fast_text)
+        return print_thermal_text(text=job.text, printer_hint=job.printer_hint, copies=job.copies)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

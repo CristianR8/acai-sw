@@ -261,6 +261,7 @@ class PosOrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     table_id = Column(Integer, ForeignKey("pos_tables.id"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(String, nullable=False, index=True, default="open")  # open|sent|delivered|closed|void
     history_cleared = Column(Boolean, nullable=False, default=False, index=True)
     inventory_consumed = Column(Boolean, nullable=False, default=False, index=True)
@@ -277,6 +278,7 @@ class PosOrder(Base):
     closed_at = Column(DateTime(timezone=True), nullable=True)
 
     table = relationship("PosTable", back_populates="orders")
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
     items = relationship("PosOrderItem", back_populates="order", cascade="all, delete-orphan")
     sale = relationship("Sale", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
@@ -349,6 +351,16 @@ class Sale(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+
+    @property
+    def created_by_name(self) -> str | None:
+        user = self.order.created_by_user if self.order else None
+        return user.full_name if user and user.full_name else None
+
+    @property
+    def created_by_email(self) -> str | None:
+        user = self.order.created_by_user if self.order else None
+        return user.email if user else None
 
     @property
     def courtesy_count(self) -> int:

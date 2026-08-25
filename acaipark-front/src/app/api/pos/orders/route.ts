@@ -93,6 +93,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const authorization = request.headers.get("authorization");
   const body = (await request.json().catch(() => null)) as OrderCreateBody | null;
   if (!body) {
     return NextResponse.json({ message: "Body inválido (JSON requerido)" }, { status: 400 });
@@ -113,7 +114,10 @@ export async function POST(request: Request) {
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(authorization ? { authorization } : {}),
+      },
       body: JSON.stringify({
         table_id,
         service_total: body.service_total ?? 0,

@@ -52,6 +52,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ orderId?: string }> },
 ) {
+  const authorization = request.headers.get("authorization");
   const { orderId } = await params;
   if (!orderId) {
     return NextResponse.json({ message: "ID de orden requerido" }, { status: 400 });
@@ -66,7 +67,10 @@ export async function POST(
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(authorization ? { authorization } : {}),
+      },
       body: body ? JSON.stringify(body) : null,
     });
   } catch (error) {

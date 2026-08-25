@@ -278,8 +278,8 @@ def _build_sale_receipt_text(
     return "\n".join(lines)
 
 
-def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, fast_text: bool = False) -> None:
-    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
+def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int) -> None:
+    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies)
 
 
 def _auto_print_comanda(
@@ -327,7 +327,7 @@ def _auto_print_comanda(
             items=zone_items,
         )
         try:
-            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, fast_text=True)
+            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies)
             logger.info(
                 "Comanda #%s enviada a impresora '%s' (zona=%s, items=%s)",
                 order_id,
@@ -632,10 +632,19 @@ def delete_table(table_id: int, db_session: Session = Depends(db.get_db)):
 
 
 @router.post("/orders", response_model=schemas.PosOrderOut, status_code=201)
-def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(db.get_db)):
+def create_order(
+    payload: schemas.PosOrderCreate,
+    db_session: Session = Depends(db.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     table = _table_or_404(db_session, payload.table_id)
 
-    order = models.PosOrder(table_id=table.id, status="open", service_total=payload.service_total)
+    order = models.PosOrder(
+        table_id=table.id,
+        created_by_user_id=current_user.id,
+        status="open",
+        service_total=payload.service_total,
+    )
     db_session.add(order)
     db_session.flush()
 
@@ -780,10 +789,16 @@ def mark_order_closed(
     order_id: int,
     payload: schemas.PosOrderClose | None = None,
     db_session: Session = Depends(db.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
     order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
+
+    # Open orders created before this field existed are attributed to the
+    # authenticated account that completes the sale.
+    if order.created_by_user_id is None:
+        order.created_by_user_id = current_user.id
 
     customer_id = None
     if payload is not None:

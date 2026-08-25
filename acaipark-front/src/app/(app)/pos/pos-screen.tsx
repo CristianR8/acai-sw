@@ -564,9 +564,23 @@ export default function PosScreen() {
         ...(payload ?? {}),
         apply_inc: payload?.apply_inc ?? applyConsumptionTax,
       };
+      const auth = readAuth();
+      const authorization = auth?.accessToken
+        ? `${auth.tokenType || "Bearer"} ${auth.accessToken}`
+        : null;
+      if (!authorization) {
+        setPaymentStatus({
+          kind: "error",
+          message: "La sesiÃ³n expirÃ³. Inicia sesiÃ³n nuevamente para registrar el pago.",
+        });
+        return null;
+      }
       const res = await fetch(`/api/pos/orders/${orderId}/close`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization,
+        },
         body: JSON.stringify(closePayload),
       });
       const responsePayload = (await res.json().catch(() => null)) as any;
@@ -1049,9 +1063,23 @@ export default function PosScreen() {
 
     setSubmitStatus({ kind: "loading" });
     try {
+      const auth = readAuth();
+      const authorization = auth?.accessToken
+        ? `${auth.tokenType || "Bearer"} ${auth.accessToken}`
+        : null;
+      if (!authorization) {
+        setSubmitStatus({
+          kind: "error",
+          message: "La sesiÃ³n expirÃ³. Inicia sesiÃ³n nuevamente para crear el pedido.",
+        });
+        return;
+      }
       const res = await fetch("/api/pos/orders", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization,
+        },
         body: JSON.stringify({
           table_id: selectedTableId,
           service_total: 0,

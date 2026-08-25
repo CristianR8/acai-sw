@@ -100,6 +100,18 @@ def _auto_migrate_schema() -> None:
                 )
             )
             conn.execute(text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS inventory_consumed BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS pos_orders "
+                    "ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_pos_orders_created_by_user_id "
+                    "ON pos_orders (created_by_user_id)"
+                )
+            )
     except Exception as exc:
         logger.warning("Auto-migration skipped/failed: %s", exc)
 

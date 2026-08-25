@@ -414,6 +414,7 @@ class PosOrderItemOut(BaseModel):
 class PosOrderOut(BaseModel):
     id: int
     table_id: int
+    created_by_user_id: int | None = None
     sale_id: int | None = None
     status: str
     electronic_invoice_status: str | None = None
@@ -468,6 +469,8 @@ class SaleOut(BaseModel):
     id: int
     order_id: int
     customer_id: int | None
+    created_by_name: str | None = None
+    created_by_email: str | None = None
     subtotal: Decimal
     tax_total: Decimal
     discount_total: Decimal
