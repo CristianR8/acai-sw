@@ -12,10 +12,12 @@ from pathlib import Path
 
 THERMAL_WIDTH = 315
 # 80 mm is the paper width, not the printable width. XP-80C-class printers
-# commonly expose about 72 mm of reliable print area, so reserve a wider
-# safety margin to avoid clipping text on the right edge.
-THERMAL_PADDING = 24
-THERMAL_CONTENT_WIDTH = THERMAL_WIDTH - (THERMAL_PADDING * 2)
+# commonly expose less printable area on their right side. Start text as
+# far left as possible and reserve a small safety margin on the right so
+# receipts do not get clipped by the printer mechanism.
+THERMAL_LEFT_PADDING = 0
+THERMAL_RIGHT_PADDING = 24
+THERMAL_CONTENT_WIDTH = THERMAL_WIDTH - THERMAL_LEFT_PADDING - THERMAL_RIGHT_PADDING
 THERMAL_FONT_SIZE = 8.2
 THERMAL_LOGO_MAX_WIDTH = 150
 THERMAL_LOGO_MAX_HEIGHT = 60
@@ -134,14 +136,14 @@ $pageIndex = 0
 $document.add_PrintPage({{ param($sender, $event)
   $y = 0
   if ($pageIndex -eq 0 -and $logo) {{
-    $x = [int][Math]::Round({THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $logoWidth) / 2))
+    $x = [int][Math]::Round({THERMAL_LEFT_PADDING} + (({THERMAL_CONTENT_WIDTH} - $logoWidth) / 2))
     $event.Graphics.DrawImage($logo, $x, $y, $logoWidth, $logoHeight)
     $y += $logoHeight + 8
   }}
   elseif ($pageIndex -gt 0) {{
     $continuation = '--- CONTINUA ---'
     $continuationWidth = $event.Graphics.MeasureString($continuation, $font).Width
-    $continuationX = [Math]::Max({THERMAL_PADDING}, {THERMAL_PADDING} + (({THERMAL_CONTENT_WIDTH} - $continuationWidth) / 2))
+    $continuationX = [Math]::Max({THERMAL_LEFT_PADDING}, {THERMAL_LEFT_PADDING} + (({THERMAL_CONTENT_WIDTH} - $continuationWidth) / 2))
     $event.Graphics.DrawString($continuation, $font, [System.Drawing.Brushes]::Black, $continuationX, $y)
     $y += [Math]::Ceiling($font.GetHeight($event.Graphics)) + 3
   }}
@@ -152,7 +154,7 @@ $document.add_PrintPage({{ param($sender, $event)
     if (($y + $actualLineHeight) -gt ($pageHeight - 16)) {{ break }}
     # Align receipt content to the printable left margin. Centering every line
     # makes narrow 80 mm printers appear shifted to the right.
-    $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, {THERMAL_PADDING}, $y)
+    $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, {THERMAL_LEFT_PADDING}, $y)
     $y += $actualLineHeight
     $lineIndex++
   }}
@@ -187,7 +189,7 @@ def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[s
         raise RuntimeError(f"No se pudo conectar con el agente de impresión: {exc.reason}") from exc
 
 
-def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict[str, str]:
+def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1, include_logo: bool = True) -> dict[str, str]:
     if os.name != "nt":
         return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies)
 
@@ -197,7 +199,7 @@ def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1) -> dict
     try:
         receipt_file.write(text)
         receipt_file.close()
-        logo_path = default_logo_path()
+        logo_path = default_logo_path() if include_logo else None
         script = _powershell_script()
         encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
         copies = max(1, min(copies, 5))
