@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import textwrap
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -19,53 +17,6 @@ logger = logging.getLogger("uvicorn.error")
 
 INC_RATE = Decimal("0.08")
 STORE_TIMEZONE = timezone(timedelta(hours=-5), name="America/Bogota")
-
-
-def _search_key(value: str) -> str:
-    return "".join(
-        character for character in unicodedata.normalize("NFD", value.casefold())
-        if unicodedata.category(character) != "Mn"
-    )
-
-
-# Exact labels emitted by Toma de pedidos -> purchased inventory SKU.
-GUIDED_SELECTION_SKUS = {
-    "arandanos": "TOP-001", "avena": "TOP-002", "banano": "TOP-003",
-    "cereza": "TOP-004", "chips de chocolate": "TOP-005", "chokis": "TOP-006",
-    "coco deshidratado": "TOP-007", "durazno": "TOP-008",
-    "fresa": "TOP-009", "granola chocolate": "TOP-010", "granola": "TOP-011",
-    "kiwi": "TOP-012", "almendras": "TOP-013", "leche en polvo": "TOP-014",
-    "mani": "TOP-015", "maranon": "TOP-016", "oreo": "TOP-018",
-    "mantequilla de almendras": "TOP-019", "pistacho": "TOP-021",
-    "mantequilla de mani": "TOP-024", "leche condensada": "TOP-025",
-    "arequipe sin azucar": "TOP-026",
-}
-
-
-def _guided_selection_counts(note: str | None, quantity: Decimal) -> dict[str, Decimal]:
-    """Count only explicit Toppings/Salsas choices from Toma de pedidos."""
-    counts: dict[str, Decimal] = {}
-    configured_lines = 0
-    for line in (note or "").splitlines():
-        line_counts: dict[str, Decimal] = {}
-        has_choices = False
-        for segment in line.split("|"):
-            label, separator, raw_choices = segment.partition(":")
-            if not separator or _search_key(label).strip() not in {"toppings", "salsas"}:
-                continue
-            has_choices = True
-            for choice in raw_choices.split(","):
-                sku = GUIDED_SELECTION_SKUS.get(_search_key(choice).strip())
-                if sku:
-                    line_counts[sku] = line_counts.get(sku, Decimal("0")) + Decimal("1")
-        if has_choices:
-            configured_lines += 1
-            for sku, count in line_counts.items():
-                counts[sku] = counts.get(sku, Decimal("0")) + count
-    if not configured_lines:
-        return {}
-    multiplier = quantity / Decimal(configured_lines)
-    return {sku: count * multiplier for sku, count in counts.items()}
 
 
 BAR_CATEGORY_KEYS = {
@@ -157,11 +108,6 @@ def _store_time(value: datetime) -> datetime:
     return value.astimezone(STORE_TIMEZONE)
 
 
-def _center_receipt_text(text: str, width: int) -> list[str]:
-    """Ajusta y centra únicamente un bloque de texto en el recibo térmico."""
-    return [line.center(width) for line in textwrap.wrap(text, width=width)]
-
-
 def _build_ticket_text(
     *,
     order_id: int,
@@ -172,23 +118,23 @@ def _build_ticket_text(
 ) -> str:
     created_local = _store_time(created_at).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
-        "  ACAIPARK POS",
-        f"  COMANDA #{order_id}",
-        f"  MESA: {table_name}",
-        f"  ZONA: {zone_label}",
-        f"  FECHA: {created_local}",
-        "  " + "-" * 40,
+        "ACAIPARK POS",
+        f"COMANDA #{order_id}",
+        f"MESA: {table_name}",
+        f"ZONA: {zone_label}",
+        f"FECHA: {created_local}",
+        "-" * 40,
     ]
 
     for item in items:
         qty_text = _format_quantity(Decimal(item.quantity))
         item_name = (item.name or "").strip()
-        lines.append(f"  {qty_text} x {item_name}")
+        lines.append(f"{qty_text} x {item_name}")
         note = (item.note or "").strip()
         if note:
-            lines.append(f"    Nota: {note}")
+            lines.append(f"  Nota: {note}")
 
-    lines.append("  " + "-" * 40)
+    lines.append("-" * 40)
     lines.append("")
     return "\n".join(lines)
 
@@ -230,13 +176,6 @@ def _build_sale_receipt_text(
         lines.append(address)
     if phone:
         lines.append(f"Tel: {phone}")
-
-    lines.extend(
-        _center_receipt_text(
-            "Este documento no reemplaza la factura de venta ni el documento equivalente, es un soporte de uso contable",
-            width,
-        )
-    )
 
     lines.extend(
         [
@@ -285,6 +224,7 @@ def _build_sale_receipt_text(
             f"TOTAL A PAGAR: {_format_cop(Decimal(sale.total))}",
             "=" * width,
             separator,
+            "Este documento no reemplaza la factura de venta ni el documento equivalente, es un soporte de uso contable",
             footer,
             "",
         ]
@@ -292,8 +232,8 @@ def _build_sale_receipt_text(
     return "\n".join(lines)
 
 
-def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, include_logo: bool = True) -> None:
-    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, include_logo=include_logo)
+def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, fast_text: bool = False) -> None:
+    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
 
 
 def _auto_print_comanda(
@@ -341,7 +281,7 @@ def _auto_print_comanda(
             items=zone_items,
         )
         try:
-            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, include_logo=False)
+            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, fast_text=True)
             logger.info(
                 "Comanda #%s enviada a impresora '%s' (zona=%s, items=%s)",
                 order_id,
@@ -577,31 +517,6 @@ def _consume_order_inventory(db_session: Session, order: models.PosOrder) -> Non
             )
             db_session.add(product)
 
-    topping_products = {
-        product.sku: product
-        for product in db_session.query(models.InventoryProduct).filter(
-            models.InventoryProduct.is_active.is_(True),
-            models.InventoryProduct.sku.in_(GUIDED_SELECTION_SKUS.values()),
-        ).all()
-    }
-    for item in order.items:
-        selected = _guided_selection_counts(item.note, Decimal(item.quantity))
-        for sku, selected_count in selected.items():
-            product = topping_products.get(sku)
-            if product is None or not product.grams_per_ice_cream:
-                continue
-            required = Decimal(product.grams_per_ice_cream) * selected_count
-            next_on_hand = Decimal(product.on_hand) - required
-            if next_on_hand < 0:
-                raise HTTPException(status_code=409, detail=f"Stock insuficiente para {product.name}")
-            product.on_hand = next_on_hand
-            db_session.add(models.StockMovement(
-                product_id=product.id, movement_type="out", quantity=-required,
-                unit_cost=product.average_cost, reason="sale", reference_type="order",
-                reference_id=order.id,
-            ))
-            db_session.add(product)
-
     order.inventory_consumed = True
     db_session.add(order)
 
@@ -646,19 +561,10 @@ def delete_table(table_id: int, db_session: Session = Depends(db.get_db)):
 
 
 @router.post("/orders", response_model=schemas.PosOrderOut, status_code=201)
-def create_order(
-    payload: schemas.PosOrderCreate,
-    db_session: Session = Depends(db.get_db),
-    current_user: models.User = Depends(auth.get_current_user),
-):
+def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(db.get_db)):
     table = _table_or_404(db_session, payload.table_id)
 
-    order = models.PosOrder(
-        table_id=table.id,
-        created_by_user_id=current_user.id,
-        status="open",
-        service_total=payload.service_total,
-    )
+    order = models.PosOrder(table_id=table.id, status="open", service_total=payload.service_total)
     db_session.add(order)
     db_session.flush()
 
@@ -803,16 +709,10 @@ def mark_order_closed(
     order_id: int,
     payload: schemas.PosOrderClose | None = None,
     db_session: Session = Depends(db.get_db),
-    current_user: models.User = Depends(auth.get_current_user),
 ):
     order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-
-    # Open orders created before this field existed are attributed to the
-    # authenticated account that completes the sale.
-    if order.created_by_user_id is None:
-        order.created_by_user_id = current_user.id
 
     customer_id = None
     if payload is not None:

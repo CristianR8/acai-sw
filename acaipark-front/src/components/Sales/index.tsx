@@ -65,6 +65,14 @@ type SalesAdjustmentsByMonth = {
   discount_count: number | string;
 };
 
+type DailyPaymentSummary = {
+  date: string;
+  cash_total: number | string;
+  transfer_total: number | string;
+  dataphone_total: number | string;
+  total: number | string;
+};
+
 const SALES_HISTORY_PAGE_SIZE = 10;
 const ADJUSTMENTS_MONTHLY_PAGE_SIZE = 8;
 const SALES_BY_PRODUCT_PAGE_SIZE = 8;
@@ -248,6 +256,9 @@ export default function Sales() {
     useState<TimeFilter>("all");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [closingDay, setClosingDay] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
+  const [dailyPayments, setDailyPayments] = useState<DailyPaymentSummary | null>(null);
+  const [dailyPaymentsLoading, setDailyPaymentsLoading] = useState(true);
 
   const withPeriodParam = useCallback(
     (basePath: string, period: TimeFilter) => {
@@ -342,6 +353,27 @@ export default function Sales() {
   useEffect(() => {
     loadSalesData();
   }, [loadSalesData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDailyPaymentsLoading(true);
+    fetch(`/api/sales/summary/daily-payment-methods?day=${encodeURIComponent(closingDay)}`, { cache: "no-store" })
+      .then(safeJson)
+      .then((payload) => {
+        if (!cancelled) setDailyPayments(payload && typeof payload === "object" ? payload as DailyPaymentSummary : null);
+      })
+      .catch(() => {
+        if (!cancelled) setDailyPayments(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDailyPaymentsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [closingDay]);
+
+  const moveClosingDay = (days: number) => {
+    setClosingDay(dayjs(closingDay).add(days, "day").format("YYYY-MM-DD"));
+  };
 
   const totalSalesValue = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
@@ -441,6 +473,26 @@ export default function Sales() {
           </p>
         </div>
       </div>
+
+      <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold text-black dark:text-white">Cierre de caja diario</h3>
+            <p className="text-body text-sm">Ingresos clasificados por medio de pago para un día específico.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <button type="button" onClick={() => moveClosingDay(-1)} className="rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-black hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2">Día anterior</button>
+            <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">Día<input type="date" value={closingDay} onChange={(event) => setClosingDay(event.target.value)} className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white" /></label>
+            <button type="button" onClick={() => { window.location.href = `/api/sales/summary/daily-payment-methods/export?day=${encodeURIComponent(closingDay)}`; }} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Descargar Excel</button>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Efectivo</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.cash_total)}</p></div>
+          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Transferencia</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.transfer_total)}</p></div>
+          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Datáfono</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.dataphone_total)}</p></div>
+          <div className="rounded-sm border border-stroke bg-primary/5 px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Total del día</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.total)}</p><p className="mt-1 text-xs text-body">{dailyPaymentsLoading ? "Cargando..." : closingDay}</p></div>
+        </div>
+      </section>
 
       <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
