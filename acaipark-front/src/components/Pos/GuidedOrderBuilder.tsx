@@ -1,58 +1,74 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 
-export type GuidedOrder = { name: string; menuItemName: string; price: number; note: string };
-type Option = { id: string; name: string; description: string; price: number; image: string; needsBase?: boolean; toppings: number; sauces: number };
-type Choice = { id: string; name: string; image: string };
-type Props = { onAddConfigured: (order: GuidedOrder) => void; editDraft?: GuidedOrder | null };
+export type GuidedOrder = {
+  name: string;
+  menuItemName: string;
+  price: number;
+  note: string;
+};
 
-const money = (value: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(value);
-const EXTRA_PRICE = 3000;
+type Option = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  image: string;
+  menuItemName: string;
+};
+
+type Props = {
+  onAddConfigured: (order: GuidedOrder) => void;
+  editDraft?: GuidedOrder | null;
+};
+
+const money = (value: number) =>
+  new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
+
 const products: Option[] = [
-  { id: "vaso", name: "Vaso", description: "Elige el tamaño que prefieras.", price: 0, image: "🥤", needsBase: true, toppings: 0, sauces: 0 },
-  { id: "bowl", name: "Bowl", description: "Una porción generosa.", price: 29900, image: "🍨", needsBase: true, toppings: 5, sauces: 1 },
-  { id: "cono", name: "Cono", description: "Crocante y práctico.", price: 9900, image: "🍦", needsBase: true, toppings: 0, sauces: 1 },
-  { id: "cafe", name: "Café 7 oz", description: "Café listo para servir.", price: 0, image: "☕", toppings: 0, sauces: 0 },
-  { id: "fresas", name: "Fresas vaso 12 oz", description: "Fresas con una combinación a elección.", price: 17900, image: "🍓", toppings: 1, sauces: 1 },
+  { id: "vaso", name: "Vaso", description: "Elige el tamaño que prefieras.", price: 0, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "bowl", name: "Bowl", description: "Una porción generosa.", price: 29900, image: "🍨", menuItemName: "Bowl personalizado" },
+  { id: "cono", name: "Cono", description: "Crocante y práctico.", price: 9900, image: "🍦", menuItemName: "Cono personalizado" },
+  { id: "cafe", name: "Café", description: "Café listo para servir.", price: 0, image: "☕", menuItemName: "Café" },
+  { id: "fresas", name: "Fresas", description: "Fresas listas para servir.", price: 17900, image: "🍓", menuItemName: "Fresas" },
+  { id: "agua", name: "Botella de agua", description: "Agua lista para servir.", price: 5000, image: "🧴", menuItemName: "BOTELLA DE AGUA" },
+  { id: "topping", name: "Topping", description: "Adicional listo para servir.", price: 3000, image: "🍓", menuItemName: "Topping" },
+  { id: "salsa", name: "Salsa", description: "Adicional listo para servir.", price: 3000, image: "🍯", menuItemName: "Salsa" },
 ];
+
 const cupSizes: Option[] = [
-  { id: "8oz", name: "Vaso 8 oz", description: "Pequeño", price: 16900, image: "🥤", toppings: 2, sauces: 1 },
-  { id: "12oz", name: "Vaso 12 oz", description: "Mediano", price: 21900, image: "🥤", toppings: 3, sauces: 1 },
-  { id: "16oz", name: "Vaso 16 oz", description: "Grande", price: 26900, image: "🥤", toppings: Number.POSITIVE_INFINITY, sauces: Number.POSITIVE_INFINITY },
+  { id: "8oz", name: "Vaso 8 oz", description: "Pequeño", price: 16900, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "12oz", name: "Vaso 12 oz", description: "Mediano", price: 21900, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "16oz", name: "Vaso 16 oz", description: "Grande", price: 26900, image: "🥤", menuItemName: "Açaí personalizado" },
 ];
-const bases: Choice[] = [["acai", "Açaí", "🫐"], ["yogurt", "Yogurt griego", "🥣"], ["cool-mix", "Cool mix", "🍇"]].map(([id, name, image]) => ({ id, name, image }));
-const toppings: Choice[] = [["Banano","🍌"],["Fresa","🍓"],["Mango","🥭"],["Leche en polvo","🥛"],["Granola","🌾"],["Avena","🌿"],["Almendras","🌰"],["Oreo","🍪"],["Maní","🥜"],["Arándanos","🫐"],["Kiwi","🥝"],["Cereza","🍒"],["Durazno","🍑"],["Coco deshidratado","🥥"],["Chía pudín","🫙"],["Granola chocolate","🍫"]].map(([name, image], i) => ({ id: `t${i}`, name, image }));
-const sauces: Choice[] = [["Chocolate","🍫"],["Leche condensada","🥛"],["Chocolate blanco","🤍"],["Mantequilla de maní","🥜"],["Arequipe sin azúcar","🍮"],["Pistacho","💚"],["Frutos rojos","🍓"],["Miel","🍯"],["Mantequilla de almendras","🌰"]].map(([name, image], i) => ({ id: `s${i}`, name, image }));
 
-function Card({ name, description, image, selected, onClick }: { name: string; description: string; image: string; selected: boolean; onClick: () => void }) {
-  return <button data-guided-choice-card type="button" onClick={onClick} className={`relative flex min-h-[150px] flex-col rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md ${selected ? "border-primary bg-primary/10 ring-2 ring-primary/25" : "border-stroke bg-gray-1 dark:border-dark-3 dark:bg-dark-2"}`}><div className="flex h-20 items-center justify-center rounded-xl bg-gray-2 text-4xl dark:bg-dark-3">{image}</div><p className="mt-3 font-bold text-dark dark:text-white">{name}</p><p className="mt-1 text-xs text-body">{description}</p>{selected && <span className="absolute right-3 top-3 rounded-full bg-primary px-2 py-1 text-xs text-white">✓</span>}</button>;
-}
-function CompactChoice({ item, selected, onClick }: { item: Choice; selected: boolean; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`relative flex min-h-20 flex-col items-center justify-center overflow-hidden rounded-2xl border px-2 py-2.5 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${selected ? "border-primary bg-primary/15 ring-2 ring-primary/25" : "border-stroke bg-gradient-to-br from-white to-primary/5 hover:border-primary/50 dark:border-dark-3 dark:from-dark-2 dark:to-primary/10"}`}><span className="flex size-10 items-center justify-center rounded-full bg-white text-2xl shadow-sm dark:bg-gray-dark">{item.image}</span><span className="mt-1.5 text-xs font-black leading-tight text-dark dark:text-white">{item.name}</span>{selected && <span className="absolute right-2 top-2 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-white">✓</span>}</button>;
-}
-function Modal({ title, subtitle, children, onClose }: { title: string; subtitle: string; children: ReactNode; onClose: () => void }) {
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" onClick={onClose}><div className="w-full max-w-5xl rounded-2xl border border-stroke bg-white p-4 shadow-2xl dark:border-dark-3 dark:bg-gray-dark sm:p-5" onClick={(event) => event.stopPropagation()}><div className="mb-4 flex items-start justify-between gap-3"><div><h5 className="text-xl font-black text-dark dark:text-white">{title}</h5><p className="mt-1 text-sm text-body">{subtitle}</p></div><button type="button" onClick={onClose} className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-semibold text-dark dark:border-dark-3 dark:text-white">Cerrar</button></div>{children}</div></div>;
+function Card({ item, onClick }: { item: Option; onClick: () => void }) {
+  return <button data-guided-choice-card type="button" onClick={onClick} className="flex min-h-[150px] flex-col rounded-2xl border border-stroke bg-gray-1 p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md dark:border-dark-3 dark:bg-dark-2"><div className="flex h-20 items-center justify-center rounded-xl bg-gray-2 text-4xl dark:bg-dark-3">{item.image}</div><p className="mt-3 font-bold text-dark dark:text-white">{item.name}</p><p className="mt-1 text-xs text-body">{item.description}</p>{item.price > 0 && <p className="mt-2 text-sm font-black text-primary">{money(item.price)}</p>}</button>;
 }
 
-export default function GuidedOrderBuilder({ onAddConfigured, editDraft = null }: Props) {
-  const [step, setStep] = useState(1); const [dialog, setDialog] = useState<"size" | "base" | "extras" | null>(null);
-  const [productId, setProductId] = useState<string | null>(null); const [cupSizeId, setCupSizeId] = useState<string | null>(null); const [baseId, setBaseId] = useState<string | null>(null); const [toppingIds, setToppingIds] = useState<string[]>([]); const [sauceIds, setSauceIds] = useState<string[]>([]);
-  const product = products.find((item) => item.id === productId); const cupSize = cupSizes.find((item) => item.id === cupSizeId); const base = bases.find((item) => item.id === baseId); const needsBase = Boolean(product?.needsBase); const configuredProduct = productId === "vaso" ? cupSize : product;
-  const selectedToppings = toppings.filter((item) => toppingIds.includes(item.id)); const selectedSauces = sauces.filter((item) => sauceIds.includes(item.id)); const allowedToppings = configuredProduct?.toppings ?? 0; const allowedSauces = configuredProduct?.sauces ?? 0;
-  const total = useMemo(() => (configuredProduct?.price ?? 0) + Math.max(0, selectedToppings.length - allowedToppings) * EXTRA_PRICE + Math.max(0, selectedSauces.length - allowedSauces) * EXTRA_PRICE, [allowedSauces, allowedToppings, configuredProduct?.price, selectedSauces.length, selectedToppings.length]);
-  const ready = Boolean(product && (product.id !== "vaso" || cupSize));
-  useEffect(() => { if (!editDraft) return; const name = editDraft.note.match(/Configurado:\s*([^|]+)/i)?.[1]?.trim() ?? editDraft.name; const normalized = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); const next = normalized.includes("vaso") ? "vaso" : normalized.includes("bowl") ? "bowl" : normalized.includes("cono") ? "cono" : normalized.includes("cafe") ? "cafe" : "fresas"; const baseName = editDraft.note.match(/Base:\s*([^|]+)/i)?.[1]?.trim(); const toppingNames = editDraft.note.match(/Toppings:\s*([^|]+)/i)?.[1]?.split(",").map((value) => value.trim()) ?? []; const sauceNames = editDraft.note.match(/Salsas:\s*([^|]+)/i)?.[1]?.split(",").map((value) => value.trim()) ?? []; setProductId(next); setCupSizeId(next === "vaso" ? cupSizes.find((item) => item.name === name)?.id ?? null : null); setBaseId(bases.find((item) => item.name === baseName)?.id ?? null); setToppingIds(toppings.filter((item) => toppingNames.includes(item.name)).map((item) => item.id)); setSauceIds(sauces.filter((item) => sauceNames.includes(item.name)).map((item) => item.id)); setStep(1); setDialog(null); }, [editDraft]);
-  useEffect(() => { if (dialog === "size" && cupSizeId) { setStep(2); setDialog("base"); } }, [cupSizeId, dialog]);
-  function reset() { setStep(1); setDialog(null); setProductId(null); setCupSizeId(null); setBaseId(null); setToppingIds([]); setSauceIds([]); }
-  function toggle(id: string, values: string[], setter: (value: string[]) => void) { setter(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]); }
-  function submit() { if (!configuredProduct || (needsBase && !base)) return; const menuItemName = productId === "vaso" ? "Açaí personalizado" : productId === "bowl" ? "Bowl personalizado" : productId === "cono" ? "Cono personalizado" : productId === "cafe" ? "Café 7 oz" : "Fresas vaso 12 oz"; onAddConfigured({ name: configuredProduct.name, menuItemName, price: total, note: [`Configurado: ${configuredProduct.name}`, base ? `Base: ${base.name}` : "", selectedToppings.length ? `Toppings: ${selectedToppings.map((item) => item.name).join(", ")}` : "", selectedSauces.length ? `Salsas: ${selectedSauces.map((item) => item.name).join(", ")}` : ""].filter(Boolean).join(" | ") }); reset(); }
-  function selectProduct(item: Option) { setProductId(item.id); setCupSizeId(null); setBaseId(null); setToppingIds([]); setSauceIds([]); if (item.id === "vaso") setDialog("size"); }
-  function startCustomization() { if (!ready) return; setStep(2); setDialog(needsBase ? "base" : "extras"); }
-  const labels = needsBase ? ["Producto", "Base", "Toppings y salsas"] : ["Producto", "Toppings y salsas"]; const active = needsBase ? step - 1 : step === 1 ? 0 : 1;
-  return <div className="rounded-2xl border border-stroke bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark sm:p-6"><div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.25em] text-primary">Tu creación</p><h4 className="mt-1 text-2xl font-black text-dark dark:text-white">Arma tu pedido</h4><p className="mt-1 text-sm text-body">Elige el producto y personalízalo.</p></div><div className="rounded-xl bg-secondary px-3 py-2 text-right text-white"><p className="text-[10px] uppercase text-white/70">Total estimado</p><p className="text-lg font-black">{money(total)}</p></div></div><div className={`mb-6 grid gap-2 ${needsBase ? "grid-cols-3" : "grid-cols-2"}`}>{labels.map((label, index) => <div key={label} className={`rounded-xl border px-3 py-2 text-sm font-bold ${active === index ? "border-primary bg-primary text-white" : "border-stroke text-body dark:border-dark-3"}`}>Paso {index + 1} · {label}</div>)}</div><section><h5 className="mb-3 text-lg font-black text-dark dark:text-white">Paso 1 · Elige el producto</h5><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{products.map((item) => <Card key={item.id} {...item} selected={productId === item.id} onClick={() => selectProduct(item)} />)}</div>{productId === "vaso" && <div className="mt-5"><h6 className="mb-3 font-black text-dark dark:text-white">Elige el tamaño del vaso</h6><div className="grid gap-3 md:grid-cols-3">{cupSizes.map((item) => <Card key={item.id} {...item} selected={cupSizeId === item.id} onClick={() => setCupSizeId(item.id)} />)}</div></div>}</section><div className="mt-6 flex justify-end border-t border-stroke pt-4 dark:border-dark-3">{productId === "cafe" ? <button type="button" onClick={submit} className="rounded-xl bg-secondary px-5 py-2 text-sm font-bold text-white">Agregar al pedido</button> : <button type="button" disabled={!ready} onClick={startCustomization} className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white disabled:opacity-40">Continuar</button>}</div>
-    {dialog === "size" && <Modal title="Elige el tamaño de tu vaso" subtitle="Cada tamaño incluye una cantidad diferente de toppings y salsas." onClose={() => setDialog(null)}><div className="grid gap-4 md:grid-cols-3">{cupSizes.map((item) => <button key={item.id} type="button" onClick={() => setCupSizeId(item.id)} className={`relative overflow-hidden rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${cupSizeId === item.id ? "border-primary bg-primary/10 ring-2 ring-primary/25" : "border-stroke bg-gradient-to-br from-white to-primary/5 dark:border-dark-3 dark:from-dark-2 dark:to-primary/10"}`}><div className="flex items-center justify-between"><span className="text-5xl">{item.image}</span><span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-black text-primary">{item.id.replace("oz", " oz")}</span></div><h6 className="mt-4 text-xl font-black text-dark dark:text-white">{item.description}</h6><p className="mt-1 text-sm font-bold text-primary">{money(item.price)}</p><p className="mt-3 text-xs text-body">Incluye {item.toppings === Number.POSITIVE_INFINITY ? "toppings ilimitados" : `${item.toppings} toppings`} y {item.sauces === Number.POSITIVE_INFINITY ? "salsas ilimitadas" : `${item.sauces} salsa${item.sauces === 1 ? "" : "s"}`}.</p>{cupSizeId === item.id && <span className="absolute right-3 top-3 rounded-full bg-primary px-2 py-1 text-xs font-bold text-white">Seleccionado</span>}</button>)}</div><div className="mt-5 flex justify-between border-t border-stroke pt-3 dark:border-dark-3"><button type="button" onClick={() => { setProductId(null); setCupSizeId(null); setDialog(null); }} className="rounded-xl border border-stroke px-4 py-2 text-sm font-bold dark:border-dark-3 dark:text-white">Atrás</button><button type="button" disabled={!cupSize} onClick={() => setDialog(null)} className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white disabled:opacity-40">Confirmar tamaño</button></div></Modal>}
-    {dialog === "base" && <Modal title="Paso 2 · Elige la base" subtitle="Selecciona una base para continuar." onClose={() => setDialog(null)}><div className="grid gap-3 md:grid-cols-3">{bases.map((item) => <CompactChoice key={item.id} item={item} selected={baseId === item.id} onClick={() => setBaseId(item.id)} />)}</div><div className="mt-4 flex justify-between border-t border-stroke pt-3 dark:border-dark-3"><button type="button" onClick={() => productId === "vaso" ? setDialog("size") : (setStep(1), setDialog(null))} className="rounded-xl border border-stroke px-4 py-2 text-sm font-bold dark:border-dark-3 dark:text-white">Atrás</button><button type="button" disabled={!base} onClick={() => { setStep(3); setDialog("extras"); }} className="rounded-xl bg-primary px-5 py-2 text-sm font-bold text-white disabled:opacity-40">Continuar</button></div></Modal>}
-    {dialog === "extras" && <Modal title={needsBase ? "Paso 3 · Toppings y salsas" : "Paso 2 · Toppings y salsas"} subtitle="Selecciona primero los toppings y después las salsas." onClose={() => setDialog(null)}><div><h6 className="mb-2 text-sm font-black text-dark dark:text-white">Toppings</h6><div className="grid grid-cols-4 gap-2 sm:grid-cols-5">{toppings.map((item) => <CompactChoice key={item.id} item={item} selected={toppingIds.includes(item.id)} onClick={() => toggle(item.id, toppingIds, setToppingIds)} />)}</div></div><div className="mt-4"><h6 className="mb-2 text-sm font-black text-dark dark:text-white">Salsas</h6><div className="grid grid-cols-4 gap-2 sm:grid-cols-5">{sauces.map((item) => <CompactChoice key={item.id} item={item} selected={sauceIds.includes(item.id)} onClick={() => toggle(item.id, sauceIds, setSauceIds)} />)}</div></div><div className="mt-4 flex justify-between border-t border-stroke pt-3 dark:border-dark-3"><button type="button" onClick={() => needsBase ? setDialog("base") : (setStep(1), setDialog(null))} className="rounded-xl border border-stroke px-4 py-2 text-sm font-bold dark:border-dark-3 dark:text-white">Atrás</button><button type="button" onClick={submit} className="rounded-xl bg-secondary px-5 py-2 text-sm font-bold text-white">Agregar al pedido · {money(total)}</button></div></Modal>}
-  </div>;
+function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" onClick={onClose}><div className="w-full max-w-3xl rounded-2xl border border-stroke bg-white p-5 shadow-2xl dark:border-dark-3 dark:bg-gray-dark" onClick={(event) => event.stopPropagation()}>{children}</div></div>;
+}
+
+export default function GuidedOrderBuilder({ onAddConfigured }: Props) {
+  const [showSizePicker, setShowSizePicker] = useState(false);
+
+  function addToOrder(item: Option) {
+    onAddConfigured({ name: item.name, menuItemName: item.menuItemName, price: item.price, note: `Configurado: ${item.name}` });
+  }
+
+  function selectProduct(item: Option) {
+    if (item.id === "vaso") {
+      setShowSizePicker(true);
+      return;
+    }
+    addToOrder(item);
+  }
+
+  return <div className="rounded-2xl border border-stroke bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark sm:p-6"><div className="mb-5"><p className="text-xs font-bold uppercase tracking-[0.25em] text-primary">Toma de pedidos</p><h4 className="mt-1 text-2xl font-black text-dark dark:text-white">Elige el producto</h4><p className="mt-1 text-sm text-body">Selecciona un producto para agregarlo directamente al pedido.</p></div><section><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{products.map((item) => <Card key={item.id} item={item} onClick={() => selectProduct(item)} />)}</div></section>{showSizePicker && <Modal onClose={() => setShowSizePicker(false)}><div className="mb-4 flex items-start justify-between gap-3"><div><h5 className="text-xl font-black text-dark dark:text-white">Elige el tamaño del vaso</h5><p className="mt-1 text-sm text-body">El tamaño se agregará directamente al pedido.</p></div><button type="button" onClick={() => setShowSizePicker(false)} className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-semibold text-dark dark:border-dark-3 dark:text-white">Cerrar</button></div><div className="grid gap-3 md:grid-cols-3">{cupSizes.map((item) => <Card key={item.id} item={item} onClick={() => { addToOrder(item); setShowSizePicker(false); }} />)}</div></Modal>}</div>;
 }

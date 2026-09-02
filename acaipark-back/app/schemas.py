@@ -493,6 +493,14 @@ class SaleOut(BaseModel):
         orm_mode = True
 
 
+class DailyPaymentMethodSummaryOut(BaseModel):
+    date: date
+    cash_total: Decimal
+    transfer_total: Decimal
+    dataphone_total: Decimal
+    total: Decimal
+
+
 class ElectronicInvoiceOut(BaseModel):
     id: int
     sale_id: int

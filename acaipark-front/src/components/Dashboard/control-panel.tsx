@@ -1,6 +1,7 @@
 "use client";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DailyPaymentMethodChart } from "@/components/Dashboard/daily-payment-method-chart";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -32,6 +33,14 @@ type SalesByProduct = {
   name: string;
   category: string;
   quantity: number | string;
+  total: number | string;
+};
+
+type DailyPaymentSummary = {
+  date: string;
+  cash_total: number | string;
+  transfer_total: number | string;
+  dataphone_total: number | string;
   total: number | string;
 };
 
@@ -107,6 +116,9 @@ export default function ControlPanel() {
   const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [topProducts, setTopProducts] = useState<SalesByProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDay, setSelectedDay] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
+  const [dailyPayments, setDailyPayments] = useState<DailyPaymentSummary | null>(null);
+  const [dailyPaymentsLoading, setDailyPaymentsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +167,23 @@ export default function ControlPanel() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDailyPaymentsLoading(true);
+    fetch(`/api/sales/summary/daily-payment-methods?day=${encodeURIComponent(selectedDay)}`, { cache: "no-store" })
+      .then(safeJson)
+      .then((payload) => {
+        if (!cancelled) setDailyPayments(payload && typeof payload === "object" ? payload as DailyPaymentSummary : null);
+      })
+      .catch(() => {
+        if (!cancelled) setDailyPayments(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDailyPaymentsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDay]);
 
   const now = dayjs().tz(COLOMBIA_TZ);
   const todayStart = now.startOf("day");
@@ -258,6 +287,44 @@ export default function ControlPanel() {
           helper="Ultimos 30 dias"
         />
       </div>
+
+      <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold text-black dark:text-white">Ingresos por medio de pago</h3>
+            <p className="text-sm text-body">Consulta los ingresos de un día específico.</p>
+          </div>
+          <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">
+            Día
+            <input
+              type="date"
+              value={selectedDay}
+              onChange={(event) => setSelectedDay(event.target.value)}
+              className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white"
+            />
+          </label>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard title="Efectivo" value={formatMoney(dailyPayments?.cash_total)} helper={selectedDay} />
+          <StatCard title="Transferencia" value={formatMoney(dailyPayments?.transfer_total)} helper={selectedDay} />
+          <StatCard title="Datáfono" value={formatMoney(dailyPayments?.dataphone_total)} helper={selectedDay} />
+          <StatCard title="Total del día" value={formatMoney(dailyPayments?.total)} helper={dailyPaymentsLoading ? "Cargando..." : selectedDay} />
+        </div>
+      </section>
+
+      <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
+        <h3 className="text-xl font-semibold text-black dark:text-white">Frecuencia de ingresos por medio de pago</h3>
+        <p className="mb-3 text-sm text-body">Distribución de los ingresos del {selectedDay}.</p>
+        {dailyPaymentsLoading ? (
+          <p className="text-sm text-body">Cargando gráfica...</p>
+        ) : (
+          <DailyPaymentMethodChart
+            cash={safeNumber(dailyPayments?.cash_total)}
+            transfer={safeNumber(dailyPayments?.transfer_total)}
+            dataphone={safeNumber(dailyPayments?.dataphone_total)}
+          />
+        )}
+      </section>
 
       <div>
         <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
