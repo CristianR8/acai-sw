@@ -35,7 +35,7 @@ const products: Option[] = [
   { id: "bowl", name: "Bowl", description: "Una porción generosa.", price: 29900, image: "🍨", menuItemName: "Bowl personalizado" },
   { id: "cono", name: "Cono", description: "Crocante y práctico.", price: 9900, image: "🍦", menuItemName: "Cono personalizado" },
   { id: "cafe", name: "Café", description: "Café listo para servir.", price: 0, image: "☕", menuItemName: "Café" },
-  { id: "fresas", name: "Fresas", description: "Fresas listas para servir.", price: 14000, image: "🍓", menuItemName: "Fresas" },
+  { id: "fresas", name: "Fresas", description: "Fresas listas para servir.", price: 17900, image: "🍓", menuItemName: "Fresas" },
   { id: "agua", name: "Botella de agua", description: "Agua lista para servir.", price: 5000, image: "🧴", menuItemName: "BOTELLA DE AGUA" },
   { id: "topping", name: "Topping", description: "Adicional listo para servir.", price: 3000, image: "🍓", menuItemName: "Topping" },
   { id: "salsa", name: "Salsa", description: "Adicional listo para servir.", price: 3000, image: "🍯", menuItemName: "Salsa" },
