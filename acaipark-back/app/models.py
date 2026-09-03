@@ -260,6 +260,7 @@ class PosOrder(Base):
     __tablename__ = "pos_orders"
 
     id = Column(Integer, primary_key=True, index=True)
+    display_number = Column(Integer, nullable=True, unique=True, index=True)
     table_id = Column(Integer, ForeignKey("pos_tables.id"), nullable=False, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(String, nullable=False, index=True, default="open")  # open|sent|delivered|closed|void

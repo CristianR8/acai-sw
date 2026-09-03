@@ -100,6 +100,8 @@ def _auto_migrate_schema() -> None:
                 )
             )
             conn.execute(text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS inventory_consumed BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE IF EXISTS pos_orders ADD COLUMN IF NOT EXISTS display_number INTEGER"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_pos_orders_display_number ON pos_orders (display_number) WHERE display_number IS NOT NULL"))
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS pos_orders "

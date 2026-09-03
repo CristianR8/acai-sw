@@ -117,6 +117,7 @@ type CartEditDraft = GuidedOrder & { cartItemId: string };
 
 type PosOrderOut = {
   id: number;
+  display_number?: number | null;
   table_id: number;
   sale_id?: number | null;
   status: string;
@@ -160,6 +161,10 @@ function formatMoney(value: unknown) {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   }).format(num);
+}
+
+function formatOrderNumber(order: { id: number; display_number?: number | null }) {
+  return String(order.display_number ?? order.id).padStart(4, "0");
 }
 
 function categoryKey(value: string) {
@@ -222,7 +227,7 @@ function buildOrderPdf(order: PosOrderOut) {
   const createdAt = toColombiaTime(order.opened_at);
 
   doc.setFontSize(16);
-  doc.text(`Pedido #${order.id}`, 14, 16);
+  doc.text(`Pedido #${formatOrderNumber(order)}`, 14, 16);
   doc.setFontSize(11);
   doc.text(`Estado: ${status.label}`, 14, 26);
   doc.text(
@@ -307,7 +312,7 @@ function ViewOrderModal({
         <div className="flex items-center justify-between border-b border-stroke px-4 py-3 dark:border-dark-3">
           <div>
             <h3 className="text-base font-semibold text-dark dark:text-white">
-              Pedido #{order.id}
+              Pedido #{formatOrderNumber(order)}
             </h3>
             <p className="text-body-color text-xs dark:text-dark-6">
               Estado: {status.label} · Total: {formatMoney(order.total)}
@@ -509,7 +514,7 @@ export default function PosScreen() {
 
   function handleDownloadPdf(order: PosOrderOut) {
     const doc = buildOrderPdf(order);
-    doc.save(`pedido-${order.id}.pdf`);
+    doc.save(`pedido-${formatOrderNumber(order)}.pdf`);
   }
 
   async function handleMarkOrderDelivered(orderId: number) {
@@ -1203,7 +1208,7 @@ export default function PosScreen() {
                   >
                     <TableCell className="min-w-[200px] xl:pl-7.5">
                       <h5 className="text-dark dark:text-white">
-                        Pedido #{order.id}
+                        Pedido #{formatOrderNumber(order)}
                       </h5>
                       <p className="mt-[3px] text-body-sm font-medium text-dark-6 dark:text-dark-6">
                         Total: {formatMoney(order.total)}
@@ -1397,7 +1402,7 @@ export default function PosScreen() {
                     >
                       <TableCell className="min-w-[200px] xl:pl-7.5">
                         <h5 className="text-dark dark:text-white">
-                          Pedido #{order.id}
+                          Pedido #{formatOrderNumber(order)}
                         </h5>
                         <p className="mt-[3px] text-body-sm font-medium text-dark-6 dark:text-dark-6">
                           Total: {formatMoney(order.total)}
@@ -1489,7 +1494,7 @@ export default function PosScreen() {
                   Registrar pago
                 </h3>
                 <p className="text-body-color text-sm dark:text-dark-6">
-                  Pedido #{paymentOrder.id}
+                  Pedido #{formatOrderNumber(paymentOrder)}
                 </p>
               </div>
               <button

@@ -413,6 +413,7 @@ class PosOrderItemOut(BaseModel):
 
 class PosOrderOut(BaseModel):
     id: int
+    display_number: int | None = None
     table_id: int
     created_by_user_id: int | None = None
     sale_id: int | None = None

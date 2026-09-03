@@ -111,6 +111,7 @@ def _store_time(value: datetime) -> datetime:
 def _build_ticket_text(
     *,
     order_id: int,
+    display_number: int | None,
     table_name: str,
     zone_label: str,
     created_at: datetime,
@@ -119,7 +120,7 @@ def _build_ticket_text(
     created_local = _store_time(created_at).strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         "ACAIPARK POS",
-        f"COMANDA #{order_id}",
+        f"COMANDA #{display_number if display_number is not None else order_id:04d}",
         f"MESA: {table_name}",
         f"ZONA: {zone_label}",
         f"FECHA: {created_local}",
@@ -239,6 +240,7 @@ def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, 
 def _auto_print_comanda(
     *,
     order_id: int,
+    display_number: int | None,
     table_name: str,
     created_at: datetime,
     items: list[models.PosOrderItem],
@@ -275,6 +277,7 @@ def _auto_print_comanda(
             continue
         ticket_text = _build_ticket_text(
             order_id=order_id,
+            display_number=display_number,
             table_name=table_name,
             zone_label=zone_label,
             created_at=created_at,
@@ -564,7 +567,16 @@ def delete_table(table_id: int, db_session: Session = Depends(db.get_db)):
 def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(db.get_db)):
     table = _table_or_404(db_session, payload.table_id)
 
-    order = models.PosOrder(table_id=table.id, status="open", service_total=payload.service_total)
+    next_display_number = (
+        db_session.query(func.coalesce(func.max(models.PosOrder.display_number), 0)).scalar()
+        + 1
+    )
+    order = models.PosOrder(
+        table_id=table.id,
+        display_number=next_display_number,
+        status="open",
+        service_total=payload.service_total,
+    )
     db_session.add(order)
     db_session.flush()
 
@@ -630,6 +642,7 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
     db_session.refresh(order)
     _auto_print_comanda(
         order_id=order.id,
+        display_number=order.display_number,
         table_name=table.name,
         created_at=now,
         items=items,
