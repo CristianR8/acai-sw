@@ -39,6 +39,14 @@ class MenuItem(Base):
     is_active = Column(Boolean, default=True)
 
 
+class InventoryMonthGroup(Base):
+    __tablename__ = "inventory_month_groups"
+
+    id = Column(Integer, primary_key=True)
+    period = Column(Date, nullable=False, unique=True, index=True)
+    items = relationship("PurchaseItem", back_populates="month_group")
+
+
 class InventoryProduct(Base):
     __tablename__ = "inventory_products"
 
@@ -51,6 +59,7 @@ class InventoryProduct(Base):
     presentation = Column(String, nullable=True)
     grams_per_ice_cream = Column(Numeric(14, 4), nullable=True)
     topping_cost = Column(Numeric(14, 4), nullable=True)
+    cost = Column(Numeric(14, 4), nullable=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True, index=True)
 
     on_hand = Column(Numeric(14, 4), nullable=False, default=0)
@@ -146,6 +155,9 @@ class PurchaseItem(Base):
     unit_cost = Column(Numeric(14, 4), nullable=False)
     line_total = Column(Numeric(14, 4), nullable=False, default=0)
 
+    month_group_id = Column(Integer, ForeignKey("inventory_month_groups.id"), nullable=True, index=True)
+    month_group = relationship("InventoryMonthGroup", back_populates="items")
+
     purchase = relationship("Purchase", back_populates="items")
     product = relationship("InventoryProduct", back_populates="purchase_items")
     supplier = relationship("Supplier")
@@ -177,6 +189,7 @@ class FixedExpensePayment(Base):
     fixed_expense_id = Column(Integer, ForeignKey("fixed_expenses.id"), nullable=False, index=True)
     period = Column(Date, nullable=False, index=True)
     due_date = Column(Date, nullable=False, index=True)
+    concept = Column(Text, nullable=True)
     amount = Column(Numeric(14, 4), nullable=False, default=0)
     status = Column(String, nullable=False, default="scheduled", index=True)
     paid_at = Column(DateTime(timezone=True), nullable=True)

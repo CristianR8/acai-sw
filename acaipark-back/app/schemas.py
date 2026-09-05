@@ -71,6 +71,7 @@ class InventoryProductBase(BaseModel):
     presentation: str | None = Field(default=None, max_length=100)
     grams_per_ice_cream: Decimal | None = Field(default=None, ge=0)
     topping_cost: Decimal | None = Field(default=None, ge=0)
+    cost: Decimal | None = Field(default=None, ge=0)
     supplier_id: int | None = None
     is_active: bool = True
 
@@ -89,6 +90,7 @@ class InventoryProductUpdate(BaseModel):
     presentation: str | None = Field(default=None, max_length=100)
     grams_per_ice_cream: Decimal | None = Field(default=None, ge=0)
     topping_cost: Decimal | None = Field(default=None, ge=0)
+    cost: Decimal | None = Field(default=None, ge=0)
     supplier_id: int | None = None
     is_active: bool | None = None
     on_hand: Decimal | None = None
@@ -236,12 +238,14 @@ class FixedExpensePaymentOut(FixedExpenseCalendarOut):
 
 
 class FixedExpensePaymentCreate(BaseModel):
+    concept: str | None = None
     fixed_expense_id: int
     payment_date: date
     amount: Decimal = Field(gt=0)
 
 
 class ManualExpensePaymentOut(BaseModel):
+    concept: str | None = None
     id: int
     fixed_expense_id: int
     name: str

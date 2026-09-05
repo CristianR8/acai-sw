@@ -82,6 +82,7 @@ def main() -> None:
             product.sku, product.kind, product.unit = sku, "ingredient", unit
             product.category, product.presentation = category, presentation
             product.grams_per_ice_cream, product.topping_cost = grams, topping_cost
+            product.cost = Decimal(str(cost))
             product.supplier_id = suppliers[supplier_name].id
             product.is_active = product.is_purchase_registered = True
 

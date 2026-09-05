@@ -131,24 +131,31 @@ $document.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.Pap
 $document.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
 $document.OriginAtMargins = $false
 $document.PrintController = New-Object System.Drawing.Printing.StandardPrintController
-$lineIndex = 0
-$pageIndex = 0
+# A reference object persists across PowerShell event-handler scopes.
+$printState = @{{ LineIndex = 0; PageIndex = 0 }}
+$maxPages = 50
 $document.add_PrintPage({{ param($sender, $event)
+  $event.HasMorePages = $false
+  if ($printState.PageIndex -ge $maxPages) {{
+    $event.Cancel = $true
+    throw "Impresión detenida: se superó el límite de páginas del recibo."
+  }}
+  $pageStartLine = $printState.LineIndex
   $y = 0
-  if ($pageIndex -eq 0 -and $logo) {{
+  if ($printState.PageIndex -eq 0 -and $logo) {{
     $x = [int][Math]::Round({THERMAL_LEFT_PADDING} + (({THERMAL_CONTENT_WIDTH} - $logoWidth) / 2))
     $event.Graphics.DrawImage($logo, $x, $y, $logoWidth, $logoHeight)
     $y += $logoHeight + 8
   }}
-  elseif ($pageIndex -gt 0) {{
+  elseif ($printState.PageIndex -gt 0) {{
     $continuation = '--- CONTINUA ---'
     $continuationWidth = $event.Graphics.MeasureString($continuation, $font).Width
     $continuationX = [Math]::Max({THERMAL_LEFT_PADDING}, {THERMAL_LEFT_PADDING} + (({THERMAL_CONTENT_WIDTH} - $continuationWidth) / 2))
     $event.Graphics.DrawString($continuation, $font, [System.Drawing.Brushes]::Black, $continuationX, $y)
     $y += [Math]::Ceiling($font.GetHeight($event.Graphics)) + 3
   }}
-  while ($lineIndex -lt $renderLines.Count -and ($y + $lineHeight) -le ($pageHeight - 16)) {{
-    $lineText = [string]$renderLines[$lineIndex]
+  while ($printState.LineIndex -lt $renderLines.Count -and ($y + $lineHeight) -le ($pageHeight - 16)) {{
+    $lineText = [string]$renderLines[$printState.LineIndex]
     $lineFont = if ($lineText -like 'TOTAL A PAGAR:*') {{ $emphasisFont }} else {{ $font }}
     $actualLineHeight = [Math]::Ceiling($lineFont.GetHeight($event.Graphics)) + 1
     if (($y + $actualLineHeight) -gt ($pageHeight - 16)) {{ break }}
@@ -156,24 +163,35 @@ $document.add_PrintPage({{ param($sender, $event)
     # makes narrow 80 mm printers appear shifted to the right.
     $event.Graphics.DrawString($lineText, $lineFont, [System.Drawing.Brushes]::Black, {THERMAL_LEFT_PADDING}, $y)
     $y += $actualLineHeight
-    $lineIndex++
+    $printState.LineIndex++
   }}
-  $pageIndex++
-  $event.HasMorePages = $lineIndex -lt $renderLines.Count
+  if ($printState.LineIndex -eq $pageStartLine -and $printState.LineIndex -lt $renderLines.Count) {{
+    $event.Cancel = $true
+    throw "Impresión detenida: no cabe ninguna línea en la página. Revisa el tamaño de papel."
+  }}
+  $printState.PageIndex++
+  $event.HasMorePages = $printState.LineIndex -lt $renderLines.Count
 }})
-$document.Print()
-$document.Dispose(); $font.Dispose(); $emphasisFont.Dispose(); if ($logo) {{ $logo.Dispose() }}
+try {{
+  $document.Print()
+}} finally {{
+  $document.Dispose(); $font.Dispose(); $emphasisFont.Dispose(); if ($logo) {{ $logo.Dispose() }}
+}}
 @{{ printerName = $selectedEntry.Name; discoveryMs = $printerDiscoveryStarted.ElapsedMilliseconds }} | ConvertTo-Json -Compress
 """
 
 
-def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[str, str]:
+def _print_timeout(text: str) -> int:
+    return min(180, max(30, 20 + (len(text) // 40)))
+
+
+def _print_through_agent(*, text: str, printer_hint: str, copies: int, include_logo: bool = True) -> dict[str, str]:
     agent_url = os.getenv("PRINT_AGENT_URL", "").strip().rstrip("/")
     agent_token = os.getenv("PRINT_AGENT_TOKEN", "").strip()
     if not agent_url or not agent_token:
         raise RuntimeError("La impresión desde Docker requiere configurar el agente local.")
 
-    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5))}).encode("utf-8")
+    payload = json.dumps({"text": text, "printer_hint": printer_hint, "copies": max(1, min(copies, 5)), "include_logo": include_logo}).encode("utf-8")
     request = urllib.request.Request(
         f"{agent_url}/print",
         data=payload,
@@ -181,7 +199,7 @@ def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[s
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=35) as response:
+        with urllib.request.urlopen(request, timeout=_print_timeout(text) * max(1, min(copies, 5)) + 15) as response:
             return json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"El agente de impresión rechazó el trabajo: {exc.read().decode('utf-8', errors='replace')}") from exc
@@ -191,7 +209,7 @@ def _print_through_agent(*, text: str, printer_hint: str, copies: int) -> dict[s
 
 def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1, include_logo: bool = True) -> dict[str, str]:
     if os.name != "nt":
-        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies)
+        return _print_through_agent(text=text, printer_hint=printer_hint, copies=copies, include_logo=include_logo)
 
     receipt_file = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".txt", delete=False
@@ -206,7 +224,7 @@ def print_thermal_text(*, text: str, printer_hint: str, copies: int = 1, include
         # Long, paginated orders can take longer for the Windows spooler to
         # process. Keep the normal limit short while allowing large comandas
         # enough time to finish instead of being cut off mid-print.
-        timeout_seconds = min(180, max(30, 20 + (len(text) // 40)))
+        timeout_seconds = _print_timeout(text)
         result: dict[str, str] = {}
         for _ in range(copies):
             completed = subprocess.run(

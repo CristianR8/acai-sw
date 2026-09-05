@@ -1,0 +1,224 @@
+{
+  "admin-local-5-False": {
+    "pages": [
+      {
+        "first": "LINE-1",
+        "count": 5,
+        "last": "LINE-5",
+        "more": false
+      }
+    ],
+    "outerLineIndex": 0
+  },
+  "admin-local-5-True": {
+    "pages": [
+      {
+        "last": "LINE-5",
+        "first": "LINE-1",
+        "more": false,
+        "count": 5
+      }
+    ],
+    "outerLineIndex": null
+  },
+  "admin-local-200-False": {
+    "outerLineIndex": 0,
+    "pages": [
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      },
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      },
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      },
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      },
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      }
+    ]
+  },
+  "admin-local-200-True": {
+    "pages": [
+      {
+        "first": "LINE-1",
+        "last": "LINE-121",
+        "count": 121,
+        "more": true
+      },
+      {
+        "first": "--- CONTINUA ---",
+        "last": "LINE-200",
+        "count": 80,
+        "more": false
+      }
+    ],
+    "outerLineIndex": null
+  },
+  "cashier-local-5-False": {
+    "pages": [
+      {
+        "first": "LINE-1",
+        "count": 5,
+        "last": "LINE-5",
+        "more": false
+      }
+    ],
+    "outerLineIndex": 0
+  },
+  "cashier-local-5-True": {
+    "outerLineIndex": null,
+    "pages": [
+      {
+        "last": "LINE-5",
+        "more": false,
+        "first": "LINE-1",
+        "count": 5
+      }
+    ]
+  },
+  "cashier-local-200-False": {
+    "pages": [
+      {
+        "count": 121,
+        "more": true,
+        "first": "LINE-1",
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "more": true,
+        "first": "LINE-1",
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "more": true,
+        "first": "LINE-1",
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "more": true,
+        "first": "LINE-1",
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "more": true,
+        "first": "LINE-1",
+        "last": "LINE-121"
+      }
+    ],
+    "outerLineIndex": 0
+  },
+  "cashier-local-200-True": {
+    "pages": [
+      {
+        "last": "LINE-121",
+        "count": 121,
+        "first": "LINE-1",
+        "more": true
+      },
+      {
+        "last": "LINE-200",
+        "count": 80,
+        "first": "--- CONTINUA ---",
+        "more": false
+      }
+    ],
+    "outerLineIndex": null
+  },
+  "admin-runtime-5-False": {
+    "outerLineIndex": 0,
+    "pages": [
+      {
+        "last": "LINE-5",
+        "first": "LINE-1",
+        "more": false,
+        "count": 5
+      }
+    ]
+  },
+  "admin-runtime-5-True": {
+    "pages": [
+      {
+        "last": "LINE-5",
+        "more": false,
+        "count": 5,
+        "first": "LINE-1"
+      }
+    ],
+    "outerLineIndex": null
+  },
+  "admin-runtime-200-False": {
+    "outerLineIndex": 0,
+    "pages": [
+      {
+        "count": 121,
+        "first": "LINE-1",
+        "more": true,
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "first": "LINE-1",
+        "more": true,
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "first": "LINE-1",
+        "more": true,
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "first": "LINE-1",
+        "more": true,
+        "last": "LINE-121"
+      },
+      {
+        "count": 121,
+        "first": "LINE-1",
+        "more": true,
+        "last": "LINE-121"
+      }
+    ]
+  },
+  "admin-runtime-200-True": {
+    "outerLineIndex": null,
+    "pages": [
+      {
+        "more": true,
+        "count": 121,
+        "last": "LINE-121",
+        "first": "LINE-1"
+      },
+      {
+        "more": false,
+        "count": 80,
+        "last": "LINE-200",
+        "first": "--- CONTINUA ---"
+      }
+    ]
+  }
+}

@@ -134,6 +134,8 @@ def create_product(
     product.presentation = payload.presentation.strip() if payload.presentation else None
     product.grams_per_ice_cream = payload.grams_per_ice_cream
     product.topping_cost = payload.topping_cost
+    from .inventory_costs import reference_cost
+    product.cost = payload.cost if payload.cost is not None else reference_cost(name, payload.category)
     product.supplier_id = payload.supplier_id
     product.is_active = payload.is_active
     product.on_hand = qty
@@ -442,7 +444,8 @@ def create_purchase(
         if kind == schemas.InventoryProductKind.ingredient.value and not unit:
             raise HTTPException(status_code=400, detail="Unidad requerida para ingredientes")
 
-        product = models.InventoryProduct(name=name, kind=kind, unit=unit, is_active=True)
+        from .inventory_costs import reference_cost
+        product = models.InventoryProduct(name=name, kind=kind, unit=unit, is_active=True, cost=reference_cost(name))
         db_session.add(product)
         db_session.flush()
         return product
@@ -955,6 +958,7 @@ def export_inventory_xlsx(db_session: Session = Depends(db.get_db)):
                 "Tipo",
                 "Unidad",
                 "Stock",
+                "Costo",
                 "Costo promedio",
                 "Último costo",
                 "Activo",
@@ -969,6 +973,7 @@ def export_inventory_xlsx(db_session: Session = Depends(db.get_db)):
                     p.kind,
                     p.unit,
                     float(p.on_hand),
+                    float(p.cost) if p.cost is not None else None,
                     float(p.average_cost),
                     float(p.last_cost),
                     bool(p.is_active),

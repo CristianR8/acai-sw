@@ -233,8 +233,8 @@ def _build_sale_receipt_text(
     return "\n".join(lines)
 
 
-def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, fast_text: bool = False) -> None:
-    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, fast_text=fast_text)
+def _send_text_to_windows_printer(*, text: str, printer_hint: str, copies: int, include_logo: bool = True) -> None:
+    print_thermal_text(text=text, printer_hint=printer_hint, copies=copies, include_logo=include_logo)
 
 
 def _auto_print_comanda(
@@ -284,7 +284,7 @@ def _auto_print_comanda(
             items=zone_items,
         )
         try:
-            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, fast_text=True)
+            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, include_logo=False)
             logger.info(
                 "Comanda #%s enviada a impresora '%s' (zona=%s, items=%s)",
                 order_id,
@@ -723,9 +723,12 @@ def mark_order_closed(
     payload: schemas.PosOrderClose | None = None,
     db_session: Session = Depends(db.get_db),
 ):
-    order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).first()
+    order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
+
+    if order.status == "void":
+        raise HTTPException(status_code=409, detail="El pedido fue anulado; vuelve a enviar la comanda.")
 
     customer_id = None
     if payload is not None:
@@ -775,9 +778,8 @@ def mark_order_closed(
     # remains active as ``paid`` until it is physically delivered.
     order.status = "paid"
 
-    should_print_receipt = order.sale is None or (
-        customer_id is not None and order.sale.customer_id != customer_id
-    )
+    # Updating the customer of an already paid order must not print again.
+    should_print_receipt = order.sale is None
     sale = _create_sale_from_order(
         db_session,
         order,
@@ -817,6 +819,26 @@ def mark_order_void(order_id: int, db_session: Session = Depends(db.get_db)):
     order.closed_at = now
 
     db_session.add(order)
+    db_session.commit()
+    db_session.refresh(order)
+    return order
+
+
+@router.post("/orders/{order_id}/return-to-cart", response_model=schemas.PosOrderOut)
+def return_order_to_cart(order_id: int, db_session: Session = Depends(db.get_db)):
+    order = (
+        db_session.query(models.PosOrder)
+        .filter(models.PosOrder.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if order.sale is not None or order.delivered_at is not None or order.status not in {"open", "sent", "void"}:
+        raise HTTPException(status_code=409, detail="El pedido ya fue pagado o entregado y no se puede devolver al carrito.")
+    # Preserve the sent order in history and allow safe retries after a lost response.
+    order.status = "void"
+    order.closed_at = order.closed_at or datetime.now(timezone.utc)
     db_session.commit()
     db_session.refresh(order)
     return order
