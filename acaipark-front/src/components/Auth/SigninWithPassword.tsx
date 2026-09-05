@@ -76,14 +76,13 @@ export default function SigninWithPassword() {
       );
 
       const next = searchParams.get("next");
-      router.push(
+      router.replace(
         next && next.startsWith("/")
           ? next
           : payload.role === "cashier"
             ? "/pos"
             : "/dashboard",
       );
-      router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor.");
     } finally {
