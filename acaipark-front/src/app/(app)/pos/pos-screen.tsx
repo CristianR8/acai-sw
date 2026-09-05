@@ -1854,6 +1854,7 @@ export default function PosScreen() {
               <GuidedOrderBuilder
                 onAddConfigured={addConfiguredToCart}
                 editDraft={guidedEditDraft}
+                menuItems={menuItems}
               />
             </div>
 
@@ -2054,12 +2055,6 @@ export default function PosScreen() {
                   >
                     {submitStatus.kind === "loading" ? "Enviando…" : "Enviar comanda"}
                   </button>
-                  {submitStatus.kind === "loading" ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary" role="status" aria-live="polite">
-                      <span className="size-5 shrink-0 animate-spin rounded-full border-2 border-primary/25 border-t-primary" aria-hidden="true" />
-                      <span>Imprimiendo comanda</span>
-                    </div>
-                  ) : null}
                 </div>
                 <button
                   type="button"

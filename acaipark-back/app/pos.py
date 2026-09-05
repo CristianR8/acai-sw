@@ -640,13 +640,6 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
     db_session.add(order)
     db_session.commit()
     db_session.refresh(order)
-    _auto_print_comanda(
-        order_id=order.id,
-        display_number=order.display_number,
-        table_name=table.name,
-        created_at=now,
-        items=items,
-    )
     return order
 
 
