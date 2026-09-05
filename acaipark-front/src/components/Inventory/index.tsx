@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { SearchIcon } from "@/assets/icons";
+import InventoryMonthGroups from "./month-groups";
 
 type InventoryKind = "ingredient" | "material" | "recipe";
 
@@ -15,6 +16,7 @@ type InventoryProduct = {
   presentation?: string | null;
   grams_per_ice_cream?: string | null;
   topping_cost?: string | null;
+  cost?: string | null;
   supplier_name?: string | null;
   on_hand: string;
   average_cost: string;
@@ -186,6 +188,7 @@ export default function Inventory({
 }) {
   const [tab, setTab] = useState<InventoryKind>("ingredient");
   const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const [monthProductIds, setMonthProductIds] = useState<number[] | null>(null);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -195,6 +198,7 @@ export default function Inventory({
   const [showEdit, setShowEdit] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [nameInput, setNameInput] = useState("");
+  const [costInput, setCostInput] = useState("");
   const [recipeNameInput, setRecipeNameInput] = useState("");
   const [recipeYieldInput, setRecipeYieldInput] = useState("1");
   const [recipeUnitInput, setRecipeUnitInput] = useState("");
@@ -313,6 +317,7 @@ export default function Inventory({
   }, [tab]);
 
   useEffect(() => {
+    setMonthProductIds(null);
     setShowCreate(false);
     setShowEdit(false);
     setShowRecipeCreate(false);
@@ -340,11 +345,12 @@ export default function Inventory({
 
   const filteredProducts = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
-    if (!term) return products;
-    return products.filter((product) =>
+    const groupedProducts = products.filter((product) => monthProductIds?.includes(product.id));
+    if (!term) return groupedProducts;
+    return groupedProducts.filter((product) =>
       normalizeSearchText(String(product.name ?? "")).includes(term),
     );
-  }, [products, searchTerm]);
+  }, [products, searchTerm, monthProductIds]);
 
   const filteredRecipes = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
@@ -409,6 +415,7 @@ export default function Inventory({
     setShowEdit(true);
     setEditingId(product.id);
     setNameInput(product.name ?? "");
+    setCostInput(product.cost ?? "");
     setUnitInput(product.unit ?? "");
     setQuantityInput(formatQty(product.on_hand ?? ""));
     const avg = safeNumber(product.average_cost);
@@ -794,6 +801,7 @@ export default function Inventory({
         body: JSON.stringify({
           name,
           unit: tab === "ingredient" ? unit : null,
+          cost: costInput.trim() ? normalizeMoneyInput(costInput) : null,
           on_hand: quantity,
           total_cost: totalCost,
         }),
@@ -1318,6 +1326,7 @@ export default function Inventory({
         </div>
       ) : null}
 
+      {tab !== "recipe" && <InventoryMonthGroups key={tab} kind={tab} searchTerm={searchTerm} products={products} productsLoading={loading} onSelect={setMonthProductIds} />}
       <div className="max-w-full overflow-x-auto pb-12">
         {tab === "recipe" ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1545,7 +1554,7 @@ export default function Inventory({
             )}
           </div>
         ) : (
-          <table className="w-full table-auto">
+          monthProductIds !== null && <table className="w-full table-auto">
             <thead>
               <tr className="bg-gray-2 text-left dark:bg-dark-2">
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">
@@ -1553,6 +1562,7 @@ export default function Inventory({
                 </th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Categoría</th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Marca / Proveedor</th>
+                <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Costo</th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Presentación</th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Gramos en helado</th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Costo por topping</th>
@@ -1565,7 +1575,7 @@ export default function Inventory({
               {loading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="text-body-color px-4 py-6 text-sm dark:text-dark-6"
                   >
                     Cargando...
@@ -1574,7 +1584,7 @@ export default function Inventory({
               ) : filteredProducts.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="text-body-color px-4 py-6 text-sm dark:text-dark-6"
                   >
                     No hay productos en esta sección.
@@ -1589,6 +1599,7 @@ export default function Inventory({
                       </td>
                       <td className="text-body-color px-4 py-3 text-sm dark:text-dark-6">{p.category || "-"}</td>
                       <td className="text-body-color px-4 py-3 text-sm dark:text-dark-6">{p.supplier_name || "-"}</td>
+                      <td className="text-body-color px-4 py-3 text-sm dark:text-dark-6">{p.cost != null ? formatCop(p.cost) : "-"}</td>
                       <td className="text-body-color px-4 py-3 text-sm dark:text-dark-6">
                         {formatQty(p.on_hand)} {formatUnitAbbr(p.unit)}
                       </td>
@@ -1622,7 +1633,7 @@ export default function Inventory({
                     </tr>
                     {showEdit && editingId === p.id ? (
                       <tr className="border-b border-stroke dark:border-dark-3">
-                        <td colSpan={7} className="px-4 pb-4 pt-2">
+                        <td colSpan={8} className="px-4 pb-4 pt-2">
                           <div className="rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                               <div className="flex flex-col gap-1">
@@ -1702,6 +1713,11 @@ export default function Inventory({
                                 />
                               </div>
                             </div>
+
+                            <label className="mt-3 block text-sm font-medium text-dark dark:text-white">
+                              Costo de la presentación
+                              <input value={formatCopInput(costInput)} onChange={(e) => setCostInput(normalizeMoneyInput(e.target.value))} inputMode="decimal" placeholder="Ej: 27500" className="mt-1 w-full rounded-md border border-stroke bg-transparent px-3 py-2 outline-none focus:border-primary" />
+                            </label>
 
                             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                               <div className="text-sm">

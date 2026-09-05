@@ -608,7 +608,7 @@ export default function Sales() {
               <h3 className="text-xl font-semibold text-black dark:text-white">
                 Ventas por producto
               </h3>
-              <p className="text-body text-sm">Acumulado por item del menu.</p>
+              <p className="text-body text-sm">Acumulado por producto y tamaño de vaso para açaí personalizado.</p>
             </div>
             <TimeFilterSelect
               value={salesByProductFilter}
@@ -631,7 +631,7 @@ export default function Sales() {
               </TableHeader>
               <TableBody>
                 {paginatedSalesByProduct.map((row) => (
-                  <TableRow key={row.menu_item_id}>
+                  <TableRow key={`${row.menu_item_id}-${row.name}-${row.category}`}>
                     <TableCell className="font-medium text-black dark:text-white">
                       {row.name}
                     </TableCell>

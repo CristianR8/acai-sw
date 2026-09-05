@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections import defaultdict
+import re
+import unicodedata
+
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
@@ -232,34 +236,63 @@ def export_daily_payment_methods_xlsx(
     )
 
 
+def _is_custom_acai(name: str) -> bool:
+    normalized = "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
+    return normalized.strip().casefold() == "acai personalizado"
+
+
+def _acai_size(note: str | None) -> str | None:
+    match = re.search(r"configurado:\s*vaso\s*(8|12|16)\s*oz\b", note or "", re.IGNORECASE)
+    return {"8": "pequeño", "12": "mediano", "16": "grande"}.get(match.group(1)) if match else None
+
+
 @router.get("/summary/products", response_model=list[schemas.SalesByProductOut])
 def sales_by_product(period: str | None = None, db_session: Session = Depends(db.get_db)):
     start_date = _period_start(period)
     query = (
         db_session.query(
+            models.Sale.order_id,
             models.SaleItem.menu_item_id,
             models.SaleItem.name,
             models.SaleItem.category,
-            func.coalesce(func.sum(models.SaleItem.quantity), 0).label("quantity"),
-            func.coalesce(func.sum(models.SaleItem.line_total), 0).label("total"),
+            models.SaleItem.unit_price,
+            models.SaleItem.quantity,
+            models.SaleItem.line_total,
         )
         .join(models.Sale, models.Sale.id == models.SaleItem.sale_id)
-        .group_by(models.SaleItem.menu_item_id, models.SaleItem.name, models.SaleItem.category)
-        .order_by(func.sum(models.SaleItem.line_total).desc())
+    )
+    notes_query = (
+        db_session.query(models.PosOrderItem)
+        .join(models.Sale, models.Sale.order_id == models.PosOrderItem.order_id)
     )
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
-    rows = query.all()
-    return [
-        schemas.SalesByProductOut(
-            menu_item_id=row.menu_item_id,
-            name=row.name,
-            category=row.category,
-            quantity=row.quantity,
-            total=row.total,
-        )
-        for row in rows
-    ]
+        notes_query = notes_query.filter(models.Sale.created_at >= start_date)
+
+    # Historical sale lines do not retain the order-line ID or its note.
+    # Match their stored attributes without joining and multiplying sale totals.
+    sizes = defaultdict(set)
+    for item in notes_query.all():
+        if _is_custom_acai(item.name):
+            key = (item.order_id, item.menu_item_id, item.unit_price, item.quantity)
+            sizes[key].add(_acai_size(item.note))
+
+    grouped = {}
+    for row in query.all():
+        name = row.name
+        if _is_custom_acai(name):
+            matches = sizes.get((row.order_id, row.menu_item_id, row.unit_price, row.quantity), set())
+            size = next(iter(matches)) if len(matches) == 1 else None
+            name = f"Açaí de vaso {size}" if size else "Açaí personalizado (sin tamaño registrado)"
+        key = (row.menu_item_id, name, row.category)
+        if key not in grouped:
+            grouped[key] = schemas.SalesByProductOut(
+                menu_item_id=row.menu_item_id, name=name, category=row.category,
+                quantity=Decimal("0"), total=Decimal("0"),
+            )
+        grouped[key].quantity += row.quantity
+        grouped[key].total += row.line_total
+    return sorted(grouped.values(), key=lambda row: row.total, reverse=True)
 
 
 @router.get("/summary/tables", response_model=list[schemas.SalesByTableOut])

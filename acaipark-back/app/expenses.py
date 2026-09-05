@@ -16,6 +16,7 @@ DEFAULT_FIXED_EXPENSES = [
     ("Nómina de cajero", "Nómina"),
     ("Personal de seguridad", "Nómina"),
     ("Póliza de inventario", "Seguros"),
+    ("Otros", "Otros"),
 ]
 
 
@@ -39,6 +40,7 @@ def _payment_out(payment: models.FixedExpensePayment) -> dict:
         "category": payment.fixed_expense.category,
         "payment_date": payment.due_date,
         "amount": payment.amount,
+        "concept": payment.concept,
         "paid_at": payment.paid_at,
     }
 
@@ -126,6 +128,7 @@ def register_manual_expense_payment(
     if existing:
         existing.due_date = payload.payment_date
         existing.amount = payload.amount
+        existing.concept = (payload.concept or "").strip() or None
         existing.status = "manual"
         existing.paid_at = datetime.now(timezone.utc)
         db_session.add(existing)
@@ -138,6 +141,7 @@ def register_manual_expense_payment(
         period=period,
         due_date=payload.payment_date,
         amount=payload.amount,
+        concept=(payload.concept or "").strip() or None,
         status="manual",
         paid_at=datetime.now(timezone.utc),
     )

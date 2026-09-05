@@ -4,6 +4,7 @@ import logging
 from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
+from . import inventory_months
 from . import auth, db, expenses, factus, inventory, loyalty, menu, models, personnel, pos, reservations, sales
 
 app = FastAPI()
@@ -15,6 +16,12 @@ def _auto_migrate_schema() -> None:
         return
     try:
         with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS month_group_id INTEGER REFERENCES inventory_month_groups(id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_items_month_group_id ON purchase_items(month_group_id)"))
+            conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS cost NUMERIC(14, 4)"))
+            from .inventory_costs import backfill_presentation_costs
+            backfill_presentation_costs(conn)
+            conn.execute(text("ALTER TABLE IF EXISTS fixed_expense_payments ADD COLUMN IF NOT EXISTS concept TEXT"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ALTER COLUMN unit DROP NOT NULL"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products DROP COLUMN IF EXISTS reorder_point"))
             conn.execute(
@@ -139,6 +146,7 @@ def _init_db() -> None:
 app.include_router(auth.router)
 app.include_router(menu.router)
 app.include_router(inventory.router)
+app.include_router(inventory_months.router)
 app.include_router(expenses.router)
 app.include_router(personnel.router)
 app.include_router(loyalty.router)
