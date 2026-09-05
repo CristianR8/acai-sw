@@ -2089,7 +2089,7 @@ export default function PosScreen() {
                     disabled={submitStatus.kind === "loading"}
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-gray-4 disabled:text-dark-6 disabled:opacity-70"
                   >
-                    {submitStatus.kind === "loading" ? "Enviando…" : "Enviar comanda"}
+                    {submitStatus.kind === "loading" ? "Preparando pago…" : "Ir al pago"}
                   </button>
                 </div>
                 <button
