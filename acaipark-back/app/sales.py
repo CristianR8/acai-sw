@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 import re
 import unicodedata
 
@@ -131,22 +130,10 @@ def export_daily_payment_methods_xlsx(
         .order_by(models.FixedExpense.name.asc())
         .all()
     )
-    start = datetime.combine(day, time.min, tzinfo=COLOMBIA_TZ)
-    cash_sales = db_session.query(models.Sale).filter(
-        models.Sale.created_at >= start,
-        models.Sale.created_at < start + timedelta(days=1),
-        func.coalesce(models.Sale.payment_method, "cash") == "cash",
-    ).all()
     openings = db_session.query(models.CashDrawerOpening).filter(
         models.CashDrawerOpening.business_date == day,
     ).all()
     opening_total = sum((Decimal(item.opening_amount) for item in openings), Decimal("0"))
-    counts = defaultdict(int)
-    for sale in cash_sales:
-        for denomination, quantity in (sale.cash_denominations or {}).items():
-            counts[int(denomination)] += quantity
-    missing = sum(sale.cash_denominations is None for sale in cash_sales)
-
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "Cierre de caja"
@@ -177,29 +164,24 @@ def export_daily_payment_methods_xlsx(
     cells(2, ["Fecha", day.strftime("%d/%m/%Y")])
     sheet.merge_cells("D2:F2")
     sheet["D2"] = "Cajero(a): __________________________"
-    section(4, "EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", 1, 3)
-    section(4, "RESUMEN DE VENTAS Y MEDIOS DE PAGO", 4, 6)
-    cells(5, ["Denominación", "Cantidad", "Total ($)", "Medio de Pago", "Comprobante / Ref", "Monto Sistema ($)"], total=True)
-    for row, denomination in enumerate([100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50], 6):
-        cells(row, [denomination, counts[denomination], f"=A{row}*B{row}"])
-        sheet.cell(row, 1).number_format = money_format
-    cells(17, ["TOTAL EFECTIVO RECIBIDO", "", "=SUM(C6:C16)"], total=True)
-    cells(6, ["Ventas en Efectivo", "POS Sistema", float(totals["cash"])], 4)
-    cells(7, ["Datáfono / Tarjetas", "Vouchers / Lote", float(totals["dataphone"])], 4)
-    cells(8, ["Transferencias", "Bancos / billeteras", float(totals["transfer"])], 4)
-    cells(9, ["TOTAL VENTAS REGISTRADAS", "", "=SUM(F6:F8)"], 4, True)
-    section(11, "GASTOS Y SALIDAS DE CAJA", 4, 6)
-    cells(12, ["Gasto", "Concepto / Ref", "Monto ($)"], 4, True)
+    section(4, "RESUMEN DE VENTAS Y MEDIOS DE PAGO")
+    cells(5, ["Medio de pago", "", "", "Comprobante / Ref", "", "Monto Sistema ($)"], total=True)
+    cells(6, ["Ventas en efectivo", "", "", "POS Sistema", "", float(totals["cash"])])
+    cells(7, ["Datáfono / tarjetas", "", "", "Vouchers / lote", "", float(totals["dataphone"])])
+    cells(8, ["Transferencias", "", "", "Bancos / billeteras", "", float(totals["transfer"])])
+    cells(9, ["TOTAL VENTAS REGISTRADAS", "", "", "", "", "=SUM(F6:F8)"], total=True)
+    section(11, "GASTOS Y SALIDAS DE CAJA")
+    cells(12, ["Gasto", "", "", "Concepto / Ref", "", "Monto ($)"], total=True)
     row = 13
     for expense in daily_expenses:
-        cells(row, [expense.fixed_expense.name, expense.concept or expense.fixed_expense.category or "", float(expense.amount)], 4)
+        cells(row, [expense.fixed_expense.name, "", "", expense.concept or expense.fixed_expense.category or "", "", float(expense.amount)])
         row += 1
     if not daily_expenses:
-        cells(row, ["Sin gastos registrados", "", 0], 4)
+        cells(row, ["Sin gastos registrados", "", "", "", "", 0])
         row += 1
     expense_total_row = row
-    cells(row, ["TOTAL GASTOS CAJA", "", f"=SUM(F13:F{row-1})"], 4, True)
-    row = max(row, 17) + 2
+    cells(row, ["TOTAL GASTOS CAJA", "", "", "", "", f"=SUM(F13:F{row-1})"], total=True)
+    row += 2
     section(row, "CONCILIACIÓN FINAL DE CAJA")
     def reconciliation(offset, label, value, total=False):
         r = row + offset
@@ -215,9 +197,7 @@ def export_daily_payment_methods_xlsx(
     reconciliation(6, "DIFERENCIA DE CAJA (Real - Esperado)", f'=IF(OR(F{row+5}="",F{row+4}=""),"",F{row+5}-F{row+4})', True)
     section(row+8, "OBSERVACIONES / NOVEDADES DEL TURNO")
     sheet.merge_cells(start_row=row+9, start_column=1, end_row=row+11, end_column=6)
-    notes = ["Las denominaciones corresponden al efectivo recibido en pagos; no descuentan cambio ni gastos. Registre el conteo físico final en la celda amarilla."]
-    if missing:
-        notes.append(f"{missing} pago(s) en efectivo sin desglose de denominaciones; no se incluyen en el total recibido por denominación.")
+    notes = ["El efectivo esperado se calcula con el total final de las ventas pagadas en efectivo, menos los gastos de caja. El cambio entregado no lo incrementa; datáfono y transferencia tampoco lo modifican. Registre el conteo físico final en la celda amarilla."]
     if not openings:
         notes.append("No hay base inicial registrada para esta fecha; conciliación pendiente.")
     sheet.cell(row+9, 1, " ".join(notes)).alignment = styles.Alignment(wrap_text=True, vertical="top")
