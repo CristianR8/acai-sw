@@ -138,6 +138,46 @@ def _auto_migrate_schema() -> None:
         logger.warning("Auto-migration skipped/failed: %s", exc)
 
 
+def _ensure_guided_addons() -> None:
+    """Create the menu items required by the guided POS flow.
+
+    Guided orders must always reference an actual menu item so they can be
+    persisted as a POS order item. Older databases predate these add-ons.
+    """
+    db_session = db.SessionLocal()
+    try:
+        addons = (
+            ("Topping", "2000.00"),
+            ("Salsa", "3000.00"),
+        )
+        for name, price in addons:
+            item = (
+                db_session.query(models.MenuItem)
+                .filter(models.MenuItem.name.ilike(name))
+                .first()
+            )
+            if item is None:
+                db_session.add(
+                    models.MenuItem(
+                        name=name,
+                        category="Adicionales",
+                        price=price,
+                        description="Adicional listo para servir.",
+                        is_active=True,
+                    )
+                )
+            else:
+                item.is_active = True
+                if name == "Topping":
+                    item.price = price
+        db_session.commit()
+    except Exception as exc:
+        db_session.rollback()
+        logger.warning("Guided add-ons setup skipped/failed: %s", exc)
+    finally:
+        db_session.close()
+
+
 @app.on_event("startup")
 def _init_db() -> None:
     if os.getenv("AUTO_CREATE_TABLES", "1") != "1":
@@ -145,6 +185,7 @@ def _init_db() -> None:
     try:
         models.Base.metadata.create_all(bind=db.engine)
         _auto_migrate_schema()
+        _ensure_guided_addons()
     except OperationalError as exc:
         database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/acai_dev")
         logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")
