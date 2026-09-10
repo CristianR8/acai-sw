@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import StrictInt, BaseModel, EmailStr, Field
 
 class UserRole(str, Enum):
     administrator = "administrator"
@@ -451,6 +451,7 @@ class PosOrderClose(BaseModel):
     customer_phone: str | None = Field(default=None, max_length=50)
     apply_inc: bool = False
     payment_method: PaymentMethod = PaymentMethod.cash
+    cash_denominations: dict[str, StrictInt] | None = None
     cash_received: Decimal | None = Field(default=None, ge=0)
 
 
@@ -485,6 +486,7 @@ class SaleOut(BaseModel):
     service_total: Decimal
     total: Decimal
     payment_method: PaymentMethod | None = None
+    cash_denominations: dict[str, StrictInt] | None = None
     cash_received: Decimal | None = None
     created_at: datetime
     electronic_invoice_status: str | None = None

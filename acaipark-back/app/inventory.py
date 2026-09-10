@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .reporting_periods import month_bounds
+
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
@@ -523,6 +525,7 @@ def create_purchase(
 @router.get("/purchases", response_model=list[schemas.PurchaseOut])
 def list_purchases(
     history: str = Query(default="recent", pattern="^(recent|all)$"),
+    month: str | None = None,
     search: str | None = Query(default=None, max_length=200),
     db_session: Session = Depends(db.get_db),
 ):
@@ -534,6 +537,10 @@ def list_purchases(
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.supplier),
         )
     )
+    if month is not None:
+        start, end = month_bounds(month)
+        purchase_date = func.coalesce(models.Purchase.purchased_at, models.Purchase.received_at, models.Purchase.created_at)
+        query = query.filter(purchase_date >= start, purchase_date < end)
     if search and search.strip():
         term = f"%{search.strip().lower()}%"
         query = (
@@ -550,7 +557,7 @@ def list_purchases(
             .distinct()
         )
     query = query.order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
-    return query.all() if history == "all" else query.limit(10).all()
+    return query.all() if month is not None or history == "all" else query.limit(10).all()
 
 
 @router.get("/recipes/{menu_item_id}", response_model=schemas.RecipeOut)

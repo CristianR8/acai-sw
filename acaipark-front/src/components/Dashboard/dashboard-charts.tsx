@@ -1,11 +1,13 @@
 "use client";
 
+import { monthLastDay } from "@/components/MonthFilter";
+
 import { PaymentsOverviewChart } from "@/components/Charts/payments-overview/chart";
 import { WeeksProfitChart } from "@/components/Charts/weeks-profit/chart";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -60,16 +62,12 @@ async function safeJson(response: Response) {
   return response.json().catch(() => null);
 }
 
-export default function DashboardCharts() {
+export default function DashboardCharts({ month }: { month: string }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rangePreset, setRangePreset] = useState<"1m" | "custom">("1m");
-  const [customStart, setCustomStart] = useState(() => dayjs().tz(COLOMBIA_TZ).subtract(1, "month").format("YYYY-MM-DD"));
-  const [customEnd, setCustomEnd] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
-  const [purchasesMonth, setPurchasesMonth] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM"));
-  const [expensesMonth, setExpensesMonth] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM"));
+  const [error, setError] = useState<string | null>(null);
   const [incomeExpenseView, setIncomeExpenseView] = useState<"both" | "income" | "expense">("both");
 
   useEffect(() => {
@@ -77,12 +75,12 @@ export default function DashboardCharts() {
     async function loadData() {
       setLoading(true);
       try {
-        const today = dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD");
         const [salesRes, purchasesRes, expensesRes] = await Promise.all([
-          fetch("/api/sales", { cache: "no-store" }),
-          fetch("/api/inventory/purchases?history=all", { cache: "no-store" }),
-          fetch(`/api/expenses/payments?from_date=2000-01-01&to_date=${today}`, { cache: "no-store" }),
+          fetch(`/api/sales?period=${month}`, { cache: "no-store" }),
+          fetch(`/api/inventory/purchases?month=${month}`, { cache: "no-store" }),
+          fetch(`/api/expenses/payments?from_date=${month}-01&to_date=${monthLastDay(month)}`, { cache: "no-store" }),
         ]);
+        if (![salesRes, purchasesRes, expensesRes].every((response) => response.ok)) throw new Error("No se pudieron cargar las gráficas.");
         const [salesPayload, purchasesPayload, expensesPayload] = await Promise.all([safeJson(salesRes), safeJson(purchasesRes), safeJson(expensesRes)]);
         if (cancelled) return;
         setSales(Array.isArray(salesPayload) ? salesPayload as Sale[] : []);
@@ -90,6 +88,7 @@ export default function DashboardCharts() {
         setExpenses(Array.isArray(expensesPayload) ? expensesPayload as ExpensePayment[] : []);
       } catch {
         if (cancelled) return;
+        setError("No se pudieron cargar las gráficas del mes seleccionado.");
         setSales([]); setPurchases([]); setExpenses([]);
       } finally {
         if (!cancelled) setLoading(false);
@@ -97,51 +96,39 @@ export default function DashboardCharts() {
     }
     void loadData();
     return () => { cancelled = true; };
-  }, []);
+  }, [month]);
 
-  const defaultEnd = dayjs().tz(COLOMBIA_TZ).startOf("day");
-  const { rangeStart, rangeEnd, rangeLabel } = useMemo(() => {
-    if (rangePreset === "custom") {
-      const startCandidate = dayjs.tz(customStart, COLOMBIA_TZ).startOf("day");
-      const endCandidate = dayjs.tz(customEnd, COLOMBIA_TZ).startOf("day");
-      const validStart = startCandidate.isValid() ? startCandidate : defaultEnd;
-      const validEnd = endCandidate.isValid() ? endCandidate : defaultEnd;
-      const start = validStart.isAfter(validEnd) ? validEnd : validStart;
-      const end = validStart.isAfter(validEnd) ? validStart : validEnd;
-      return { rangeStart: start, rangeEnd: end, rangeLabel: `Del ${start.format("DD/MM/YYYY")} al ${end.format("DD/MM/YYYY")}` };
-    }
-    return { rangeStart: defaultEnd.subtract(1, "month").startOf("day"), rangeEnd: defaultEnd, rangeLabel: "Último mes" };
-  }, [rangePreset, customStart, customEnd, defaultEnd]);
+  const rangeStart = dayjs.tz(`${month}-01`, COLOMBIA_TZ).startOf("month");
+  const rangeEnd = rangeStart.endOf("month").startOf("day");
+  const salesSeries = buildSeries(sales, rangeStart, rangeEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total));
+  const purchasesSeries = buildSeries(purchases, rangeStart, rangeEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost));
+  const expensesSeries = buildSeries(expenses, rangeStart, rangeEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount));
+  const totalExpensesSeries = purchasesSeries.map((point, index) => ({ x: point.x, y: point.y + (expensesSeries[index]?.y ?? 0) }));
 
-  const salesSeries = useMemo(() => buildSeries(sales, rangeStart, rangeEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total)), [sales, rangeStart, rangeEnd]);
-  const purchasesMonthRange = useMemo(() => {
-    const month = dayjs(`${purchasesMonth}-01`).tz(COLOMBIA_TZ);
-    return { start: month.startOf("month"), end: month.endOf("month") };
-  }, [purchasesMonth]);
-  const expensesMonthRange = useMemo(() => {
-    const month = dayjs(`${expensesMonth}-01`).tz(COLOMBIA_TZ);
-    return { start: month.startOf("month"), end: month.endOf("month") };
-  }, [expensesMonth]);
-  const purchasesSeries = useMemo(() => buildSeries(purchases, purchasesMonthRange.start, purchasesMonthRange.end, purchaseDate, (purchase) => safeNumber(purchase.total_cost)), [purchases, purchasesMonthRange]);
-  const expensesSeries = useMemo(() => buildSeries(expenses, expensesMonthRange.start, expensesMonthRange.end, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount)), [expenses, expensesMonthRange]);
-  const totalExpensesSeries = useMemo(() => {
-    const allPurchases = buildSeries(purchases, rangeStart, rangeEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost));
-    const allExpenses = buildSeries(expenses, rangeStart, rangeEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount));
-    return allPurchases.map((point, index) => ({ x: point.x, y: point.y + (allExpenses[index]?.y ?? 0) }));
-  }, [purchases, expenses, rangeStart, rangeEnd]);
-
-  const weeklyRangeStart = defaultEnd.subtract(6, "day");
-  const weeklySales = useMemo(() => buildSeries(sales, weeklyRangeStart, defaultEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total)), [sales, weeklyRangeStart, defaultEnd]);
-  const weeklyPurchases = useMemo(() => buildSeries(purchases, weeklyRangeStart, defaultEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost)), [purchases, weeklyRangeStart, defaultEnd]);
-  const weeklyExpenses = useMemo(() => buildSeries(expenses, weeklyRangeStart, defaultEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount)), [expenses, weeklyRangeStart, defaultEnd]);
-  const weeklyTotalExpenses = useMemo(() => weeklyPurchases.map((point, index) => ({ x: point.x, y: point.y + (weeklyExpenses[index]?.y ?? 0) })), [weeklyPurchases, weeklyExpenses]);
-
-  const controls = <div className="flex flex-wrap items-center gap-2"><select value={rangePreset} onChange={(event) => setRangePreset(event.target.value as "1m" | "custom")} className="h-9 rounded-md border border-stroke bg-white px-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"><option value="1m">1 mes</option><option value="custom">Personalizado</option></select>{rangePreset === "custom" ? <div className="flex flex-wrap items-center gap-2"><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /><span className="text-sm text-body">a</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /></div> : null}</div>;
-
-  return <div className="grid gap-4 md:grid-cols-2">
-    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Ingresos y egresos</h2><p className="text-sm text-body">{rangeLabel}</p></div><div className="flex flex-wrap items-center gap-2">{controls}<select value={incomeExpenseView} onChange={(event) => setIncomeExpenseView(event.target.value as "both" | "income" | "expense")} className="h-9 rounded-md border border-stroke bg-white px-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"><option value="both">Ambos</option><option value="income">Solo ingresos</option><option value="expense">Solo egresos</option></select></div></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: incomeExpenseView === "expense" ? [] : salesSeries, due: incomeExpenseView === "income" ? undefined : totalExpensesSeries }} receivedLabel="Ingresos" dueLabel="Egresos totales" />}</section>
-    <section className="rounded-[10px] bg-white px-7.5 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-2"><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Ingresos vs egresos</h2><p className="text-sm text-body">Comparativo de los últimos 7 días.</p></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <WeeksProfitChart data={{ sales: weeklySales, revenue: weeklyTotalExpenses }} />}</section>
-    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Egresos por compras</h2><p className="text-sm text-body">{purchasesMonthRange.start.format("MMMM YYYY")}</p></div><input type="month" value={purchasesMonth} onChange={(event) => setPurchasesMonth(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: purchasesSeries }} receivedLabel="Compras" colors={["#ff2056"]} />}</section>
-    <section className="rounded-[10px] bg-white px-7.5 pb-6 pt-7.5 shadow-1 dark:bg-gray-dark dark:shadow-card"><div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-body-2xlg font-bold text-dark dark:text-white">Egresos por gastos</h2><p className="text-sm text-body">Pagos manuales registrados · {expensesMonthRange.start.format("MMMM YYYY")}</p></div><input type="month" value={expensesMonth} onChange={(event) => setExpensesMonth(event.target.value)} className="h-9 rounded-md border border-stroke bg-white px-2 text-sm text-dark shadow-sm outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" /></div>{loading ? <p className="text-sm text-body">Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: expensesSeries }} receivedLabel="Gastos" colors={["#f59e0b"]} />}</section>
-  </div>;
+  return <>
+    {error ? <p role="alert" className="mb-4 text-red">{error}</p> : null}
+    <div className="grid gap-4 md:grid-cols-2">
+      <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark">
+        <div className="mb-3 flex flex-wrap justify-between gap-3">
+          <h2 className="text-xl font-bold text-dark dark:text-white">Ingresos y egresos del mes</h2>
+          <select aria-label="Mostrar ingresos o egresos" value={incomeExpenseView} onChange={(event) => setIncomeExpenseView(event.target.value as "both" | "income" | "expense")} className="rounded border border-stroke bg-transparent px-3 py-2 text-sm">
+            <option value="both">Ambos</option><option value="income">Solo ingresos</option><option value="expense">Solo egresos</option>
+          </select>
+        </div>
+        {loading ? <p>Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: incomeExpenseView === "expense" ? [] : salesSeries, due: incomeExpenseView === "income" ? undefined : totalExpensesSeries }} receivedLabel="Ingresos" dueLabel="Egresos totales" />}
+      </section>
+      <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark">
+        <h2 className="mb-3 text-xl font-bold text-dark dark:text-white">Ingresos vs egresos del mes</h2>
+        {loading ? <p>Cargando gráfica...</p> : <WeeksProfitChart data={{ sales: salesSeries, revenue: totalExpensesSeries }} />}
+      </section>
+      <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark">
+        <h2 className="mb-3 text-xl font-bold text-dark dark:text-white">Egresos por compras del mes</h2>
+        {loading ? <p>Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: purchasesSeries }} receivedLabel="Compras" colors={["#ff2056"]} />}
+      </section>
+      <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark">
+        <h2 className="mb-3 text-xl font-bold text-dark dark:text-white">Egresos por gastos del mes</h2>
+        {loading ? <p>Cargando gráfica...</p> : <PaymentsOverviewChart data={{ received: expensesSeries }} receivedLabel="Gastos" colors={["#f59e0b"]} />}
+      </section>
+    </div>
+  </>;
 }

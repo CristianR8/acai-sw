@@ -16,6 +16,7 @@ def _auto_migrate_schema() -> None:
         return
     try:
         with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_denominations JSON"))
             conn.execute(text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS month_group_id INTEGER REFERENCES inventory_month_groups(id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_items_month_group_id ON purchase_items(month_group_id)"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS cost NUMERIC(14, 4)"))
