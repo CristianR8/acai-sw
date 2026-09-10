@@ -1,0 +1,2 @@
+import { NextResponse } from "next/server";
+export async function GET(request: Request) { const backend = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/$/, ""); const response = await fetch(`${backend}/sales/cash-closing.pdf${new URL(request.url).search}`, { cache: "no-store" }); return new NextResponse(response.body, { status: response.status, headers: { "content-type": response.headers.get("content-type") ?? "application/pdf", "content-disposition": response.headers.get("content-disposition") ?? "" } }); }

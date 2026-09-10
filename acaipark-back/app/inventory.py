@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from .reporting_periods import month_bounds
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import String, cast, func, or_
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from . import db, models, schemas
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+COLOMBIA_TZ = ZoneInfo("America/Bogota")
 
 
 def _norm(value: str) -> str:
@@ -545,6 +547,8 @@ def create_purchase(
 def list_purchases(
     history: str = Query(default="recent", pattern="^(recent|all)$"),
     month: str | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
     search: str | None = Query(default=None, max_length=200),
     db_session: Session = Depends(db.get_db),
 ):
@@ -556,9 +560,13 @@ def list_purchases(
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.supplier),
         )
     )
-    if month is not None:
+    purchase_date = func.coalesce(models.Purchase.purchased_at, models.Purchase.received_at, models.Purchase.created_at)
+    if from_date and to_date:
+        if from_date > to_date: raise HTTPException(status_code=400, detail="La fecha Desde no puede ser posterior a Hasta")
+        start = datetime.combine(from_date, time.min, tzinfo=COLOMBIA_TZ)
+        query = query.filter(purchase_date >= start, purchase_date < start + timedelta(days=(to_date - from_date).days + 1))
+    elif month is not None:
         start, end = month_bounds(month)
-        purchase_date = func.coalesce(models.Purchase.purchased_at, models.Purchase.received_at, models.Purchase.created_at)
         query = query.filter(purchase_date >= start, purchase_date < end)
     if search and search.strip():
         term = f"%{search.strip().lower()}%"
@@ -577,7 +585,7 @@ def list_purchases(
             .distinct()
         )
     query = query.order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
-    return query.all() if month is not None or history == "all" else query.limit(10).all()
+    return query.all() if month is not None or (from_date and to_date) or history == "all" else query.limit(10).all()
 
 
 @router.get("/recipes/{menu_item_id}", response_model=schemas.RecipeOut)

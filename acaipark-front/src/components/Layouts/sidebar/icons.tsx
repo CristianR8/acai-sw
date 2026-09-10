@@ -2,6 +2,7 @@ import { SVGProps } from "react";
 import { CiShop as CiShopIcon } from "react-icons/ci";
 import {
   MdOutlineInventory as MdOutlineInventoryIcon,
+  MdOutlinePayments as MdOutlinePaymentsIcon,
   MdOutlinePeople as MdOutlinePeopleIcon,
   MdOutlineRestaurantMenu as MdOutlineRestaurantMenuIcon,
 } from "react-icons/md";
@@ -164,6 +165,9 @@ export const MdOutlineRestaurantMenu = (props: PropsType) => (
 );
 export const MdOutlineInventory = (props: PropsType) => (
   <MdOutlineInventoryIcon {...props} />
+);
+export const MdOutlinePayments = (props: PropsType) => (
+  <MdOutlinePaymentsIcon {...props} />
 );
 export const MdOutlinePeople = (props: PropsType) => <MdOutlinePeopleIcon {...props} />;
 

@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import MonthFilter, { currentMonth, initialDay, monthLastDay } from "@/components/MonthFilter";
+import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
+import DateRangeFilter, { currentMonthRange, type DateRange } from "@/components/DateRangeFilter";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -55,6 +56,7 @@ type SalesByProduct = {
   menu_item_id: number;
   name: string;
   category: string;
+  base?: string | null;
   quantity: number | string;
   total: number | string;
 };
@@ -207,10 +209,11 @@ function PaginationControls({
 
 export default function Sales() {
   const [month, setMonth] = useState(currentMonth);
-  return <><MonthFilter value={month} onChange={setMonth} /><MonthlySales key={month} month={month} /></>;
+  const [range, setRange] = useState<DateRange>(currentMonthRange);
+  return <><MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}><DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} /></MonthFilter><MonthlySales key={`${month}-${range.from}-${range.to}`} month={month} range={range} /></>;
 }
 
-function MonthlySales({ month }: { month: string }) {
+function MonthlySales({ month, range }: { month: string; range: DateRange }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
   const [salesAdjustmentsByMonth, setSalesAdjustmentsByMonth] = useState<
@@ -221,15 +224,12 @@ function MonthlySales({ month }: { month: string }) {
   const [adjustmentsMonthlyPage, setAdjustmentsMonthlyPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [closingDay, setClosingDay] = useState(() => initialDay(month));
-  const [dailyPayments, setDailyPayments] = useState<DailyPaymentSummary | null>(null);
-  const [dailyPaymentsLoading, setDailyPaymentsLoading] = useState(true);
 
   const withPeriodParam = useCallback(
     (basePath: string) => {
-      return `${basePath}?period=${encodeURIComponent(month)}`;
+      return `${basePath}?from_date=${encodeURIComponent(range.from)}&to_date=${encodeURIComponent(range.to)}`;
     },
-    [month],
+    [range],
   );
 
   const loadSalesData = useCallback(async () => {
@@ -274,26 +274,14 @@ function MonthlySales({ month }: { month: string }) {
             "No se pudo cargar el historial de ventas",
         );
       }
-      if (!productsResponse.ok) {
-        throw new Error(
-          (productsPayload as any)?.message ||
-            "No se pudo cargar ventas por producto",
-        );
-      }
-      if (!adjustmentsMonthlyResponse.ok) {
-        throw new Error(
-          (adjustmentsMonthlyPayload as any)?.message ||
-            "No se pudo cargar cortesias/descuentos por mes",
-        );
-      }
       setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
       setSalesByProduct(
-        Array.isArray(productsPayload)
+        productsResponse.ok && Array.isArray(productsPayload)
           ? (productsPayload as SalesByProduct[])
           : [],
       );
       setSalesAdjustmentsByMonth(
-        Array.isArray(adjustmentsMonthlyPayload)
+        adjustmentsMonthlyResponse.ok && Array.isArray(adjustmentsMonthlyPayload)
           ? (adjustmentsMonthlyPayload as SalesAdjustmentsByMonth[])
           : [],
       );
@@ -301,7 +289,6 @@ function MonthlySales({ month }: { month: string }) {
       const message =
         error instanceof Error ? error.message : "No se pudo cargar ventas";
       setErrorMessage(message);
-      setSales([]);
       setSalesByProduct([]);
       setSalesAdjustmentsByMonth([]);
     } finally {
@@ -314,27 +301,6 @@ function MonthlySales({ month }: { month: string }) {
   useEffect(() => {
     loadSalesData();
   }, [loadSalesData]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setDailyPaymentsLoading(true);
-    fetch(`/api/sales/summary/daily-payment-methods?day=${encodeURIComponent(closingDay)}`, { cache: "no-store" })
-      .then(safeJson)
-      .then((payload) => {
-        if (!cancelled) setDailyPayments(payload && typeof payload === "object" ? payload as DailyPaymentSummary : null);
-      })
-      .catch(() => {
-        if (!cancelled) setDailyPayments(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDailyPaymentsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [closingDay]);
-
-  const moveClosingDay = (days: number) => {
-    setClosingDay(dayjs(closingDay).add(days, "day").format("YYYY-MM-DD"));
-  };
 
   const totalSalesValue = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
@@ -434,26 +400,6 @@ function MonthlySales({ month }: { month: string }) {
           </p>
         </div>
       </div>
-
-      <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h3 className="text-xl font-semibold text-black dark:text-white">Cierre de caja diario</h3>
-            <p className="text-body text-sm">Ingresos clasificados por medio de pago para un día específico.</p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <button type="button" onClick={() => moveClosingDay(-1)} className="rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-black hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2">Día anterior</button>
-            <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">Día<input type="date" min={`${month}-01`} max={monthLastDay(month)} value={closingDay} onChange={(event) => event.target.value.startsWith(`${month}-`) && setClosingDay(event.target.value)} className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white" /></label>
-            <button type="button" onClick={() => { window.location.href = `/api/sales/summary/daily-payment-methods/export?day=${encodeURIComponent(closingDay)}`; }} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Descargar Excel</button>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Efectivo</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.cash_total)}</p></div>
-          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Transferencia</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.transfer_total)}</p></div>
-          <div className="rounded-sm border border-stroke px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Datáfono</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.dataphone_total)}</p></div>
-          <div className="rounded-sm border border-stroke bg-primary/5 px-5 py-4 dark:border-dark-3"><p className="text-sm text-body">Total del día</p><p className="mt-2 text-2xl font-semibold text-black dark:text-white">{formatMoney(dailyPayments?.total)}</p><p className="mt-1 text-xs text-body">{dailyPaymentsLoading ? "Cargando..." : closingDay}</p></div>
-        </div>
-      </section>
 
       <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -565,7 +511,7 @@ function MonthlySales({ month }: { month: string }) {
               <h3 className="text-xl font-semibold text-black dark:text-white">
                 Ventas por producto
               </h3>
-              <p className="text-body text-sm">Acumulado por producto y tamaño de vaso para açaí personalizado.</p>
+              <p className="text-body text-sm">Acumulado por producto, tamaño y tipo de base.</p>
             </div>
           </div>
           {loading ? (
@@ -577,6 +523,7 @@ function MonthlySales({ month }: { month: string }) {
               <TableHeader>
                 <TableRow className="border-none bg-[#F7F9FC] dark:bg-dark-2">
                   <TableHead>Producto</TableHead>
+                  <TableHead>Base</TableHead>
                   <TableHead>Categoria</TableHead>
                   <TableHead>Cantidad</TableHead>
                   <TableHead>Total</TableHead>
@@ -584,9 +531,12 @@ function MonthlySales({ month }: { month: string }) {
               </TableHeader>
               <TableBody>
                 {paginatedSalesByProduct.map((row) => (
-                  <TableRow key={`${row.menu_item_id}-${row.name}-${row.category}`}>
+                  <TableRow key={`${row.menu_item_id}-${row.name}-${row.category}-${row.base ?? "none"}`}>
                     <TableCell className="font-medium text-black dark:text-white">
                       {row.name}
+                    </TableCell>
+                    <TableCell className="text-black dark:text-white">
+                      {row.base ?? "Sin base registrada"}
                     </TableCell>
                     <TableCell className="text-black dark:text-white">
                       {row.category}

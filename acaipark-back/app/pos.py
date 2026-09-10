@@ -392,6 +392,7 @@ def _create_sale_from_order(
     customer_id: int | None = None,
     payment_method: str | None = None,
     cash_received: Decimal | None = None,
+    cash_denomination_counts: dict[str, int] | None = None,
 ) -> models.Sale:
     if order.sale:
         if customer_id is not None:
@@ -399,6 +400,7 @@ def _create_sale_from_order(
         if payment_method is not None:
             order.sale.payment_method = payment_method
             order.sale.cash_received = cash_received if payment_method == "cash" else None
+            order.sale.cash_denomination_counts = cash_denomination_counts if payment_method == "cash" else {}
         return order.sale
 
     sale_subtotal = Decimal("0")
@@ -438,6 +440,7 @@ def _create_sale_from_order(
         total=sale_subtotal + sale_tax_total + Decimal(order.service_total),
         payment_method=payment_method,
         cash_received=cash_received if payment_method == "cash" else None,
+        cash_denomination_counts=cash_denomination_counts if payment_method == "cash" else {},
     )
     db_session.add(sale)
     db_session.flush()
@@ -779,6 +782,7 @@ def mark_order_closed(
         customer_id=customer_id,
         payment_method=payload.payment_method.value if payload is not None else "cash",
         cash_received=payload.cash_received if payload is not None else None,
+        cash_denomination_counts=payload.cash_denomination_counts if payload is not None else {},
     )
     db_session.add(order)
     db_session.commit()

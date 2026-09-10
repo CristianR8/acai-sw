@@ -436,6 +436,7 @@ export default function PosScreen() {
   const [applyConsumptionTax, setApplyConsumptionTax] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [receivedAmountInput, setReceivedAmountInput] = useState("");
+  const [cashDenominationCounts, setCashDenominationCounts] = useState<Record<string, number>>({});
   const [paymentStatus, setPaymentStatus] = useState<
     | { kind: "idle" }
     | { kind: "loading" }
@@ -567,6 +568,7 @@ export default function PosScreen() {
       apply_inc?: boolean;
       payment_method?: PaymentMethod;
       cash_received?: number | null;
+      cash_denomination_counts?: Record<string, number>;
     },
   ): Promise<PosOrderOut | null> {
     try {
@@ -692,6 +694,7 @@ export default function PosScreen() {
     setApplyConsumptionTax(false);
     setPaymentMethod("cash");
     setReceivedAmountInput("");
+    setCashDenominationCounts({});
     setPaymentStatus({ kind: "idle" });
   }
 
@@ -716,12 +719,22 @@ export default function PosScreen() {
   }
 
   function appendCashKey(key: string) {
+    setCashDenominationCounts({});
     setReceivedAmountInput((current) => {
       const digits = current.replace(/\D/g, "");
       if (key === "backspace") return digits.slice(0, -1);
       if (key === "clear") return "";
       return `${digits}${key}`.replace(/^0+(?=\d)/, "");
     });
+    if (paymentStatus.kind === "error") setPaymentStatus({ kind: "idle" });
+  }
+
+  function addCashBill(amount: number) {
+    setReceivedAmountInput((current) => String((Number(current) || 0) + amount));
+    setCashDenominationCounts((current) => ({
+      ...current,
+      [String(amount)]: (current[String(amount)] || 0) + 1,
+    }));
     if (paymentStatus.kind === "error") setPaymentStatus({ kind: "idle" });
   }
 
@@ -876,6 +889,7 @@ export default function PosScreen() {
       apply_inc: applyConsumptionTax,
       payment_method: paymentMethod,
       cash_received: paymentMethod === "cash" ? receivedAmount : null,
+      cash_denomination_counts: paymentMethod === "cash" ? cashDenominationCounts : {},
     });
     if (closedOrder) {
       closePaymentModal();
@@ -895,6 +909,7 @@ export default function PosScreen() {
       apply_inc: applyConsumptionTax,
       payment_method: paymentMethod,
       cash_received: paymentMethod === "cash" ? receivedAmount : null,
+      cash_denomination_counts: paymentMethod === "cash" ? cashDenominationCounts : {},
     };
     const closedOrder = await handleMarkOrderPaid(
       paymentOrder.id,
@@ -924,6 +939,7 @@ export default function PosScreen() {
       apply_inc: applyConsumptionTax,
       payment_method: paymentMethod,
       cash_received: paymentMethod === "cash" ? receivedAmount : null,
+      cash_denomination_counts: paymentMethod === "cash" ? cashDenominationCounts : {},
     };
     const closedOrder = await handleMarkOrderPaid(
       paymentOrder.id,
@@ -1028,7 +1044,8 @@ export default function PosScreen() {
   }) {
     const baseItem = menuItems.find((item) => {
       if (configuredOrder.menuItemName) {
-        return normalizeSearchText(item.name) === normalizeSearchText(configuredOrder.menuItemName);
+        const itemName = normalizeSearchText(item.name);
+        return itemName === normalizeSearchText(configuredOrder.menuItemName) || itemName === normalizeSearchText(configuredOrder.name);
       }
       const name = normalizeSearchText(item.name);
       return (
@@ -1623,6 +1640,21 @@ export default function PosScreen() {
                   <p className="mb-2 text-xs text-body-color dark:text-dark-6">
                     Ingresa el efectivo recibido para calcular el cambio.
                   </p>
+                  <div className="mb-3 grid grid-cols-3 gap-1.5">
+                    {([
+                      [2000, "/money/2mil.jpg", "2 mil"],
+                      [5000, "/money/5mil.jpg", "5 mil"],
+                      [10000, "/money/10mil.jpg", "10 mil"],
+                      [20000, "/money/20mil.jpg", "20 mil"],
+                      [50000, "/money/50mil.jpg", "50 mil"],
+                      [100000, "/money/100mil.jpg", "100 mil"],
+                    ] as Array<[number, string, string]>).map(([amount, image, label]) => (
+                      <button key={amount} type="button" onClick={() => addCashBill(amount)} className="overflow-hidden rounded-md border border-stroke bg-white text-[11px] font-semibold text-dark transition hover:border-primary hover:ring-1 hover:ring-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white">
+                        <img src={image} alt={`Billete de ${label}`} className="h-10 w-full object-cover" />
+                        <span className="block py-1">{formatMoney(amount)}</span>
+                      </button>
+                    ))}
+                  </div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "backspace"].map((key) => (
                       <button key={key} type="button" onClick={() => appendCashKey(key)} className="rounded-lg border border-stroke bg-white py-2 text-base font-bold text-dark transition hover:border-primary hover:bg-primary/5 dark:border-dark-3 dark:bg-gray-dark dark:text-white">

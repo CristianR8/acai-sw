@@ -15,7 +15,18 @@ export const metadata: Metadata = {
     default: "ACAI PARK SOFTWARE",
   },
   description:
-    "Next.js admin dashboard toolkit with 200+ templates, UI components, and integrations for fast dashboard development.",
+    "Sistema de administración y punto de venta de Açaí Park.",
+  openGraph: {
+    title: "AÇAÍ PARK SOFTWARE",
+    description: "Sistema de administración y punto de venta de Açaí Park.",
+    images: [{ url: "/images/logo/LogoAP.jpg", width: 1200, height: 1200, alt: "Açaí Park" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "AÇAÍ PARK SOFTWARE",
+    description: "Sistema de administración y punto de venta de Açaí Park.",
+    images: ["/images/logo/LogoAP.jpg"],
+  },
   icons: {
     icon: "/images/logo/LogoAP.jpg",
     shortcut: "/images/logo/LogoAP.jpg",

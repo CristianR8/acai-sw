@@ -16,6 +16,7 @@ def _auto_migrate_schema() -> None:
         return
     try:
         with db.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS cash_drawer_closings (id SERIAL PRIMARY KEY, business_date DATE NOT NULL UNIQUE, denomination_counts JSON NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"))
             conn.execute(text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS month_group_id INTEGER REFERENCES inventory_month_groups(id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_items_month_group_id ON purchase_items(month_group_id)"))
             conn.execute(text("ALTER TABLE IF EXISTS purchases ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(100)"))
@@ -74,6 +75,9 @@ def _auto_migrate_schema() -> None:
             )
             conn.execute(
                 text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_received NUMERIC(14, 2)")
+            )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_denomination_counts JSON NOT NULL DEFAULT '{}'")
             )
             conn.execute(text("ALTER TABLE IF EXISTS pos_orders DROP COLUMN IF EXISTS waiter_id"))
             conn.execute(text("ALTER TABLE IF EXISTS sales DROP COLUMN IF EXISTS waiter_id"))

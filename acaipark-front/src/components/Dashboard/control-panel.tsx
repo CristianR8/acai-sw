@@ -1,6 +1,6 @@
 "use client";
 
-import { monthLastDay } from "@/components/MonthFilter";
+import type { DateRange } from "@/components/DateRangeFilter";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DailyPaymentMethodChart } from "@/components/Dashboard/daily-payment-method-chart";
@@ -82,7 +82,7 @@ async function safeJson(response: Response) {
   }
 }
 
-export default function ControlPanel({ month }: { month: string }) {
+export default function ControlPanel({ range }: { range: DateRange }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
@@ -95,16 +95,17 @@ export default function ControlPanel({ month }: { month: string }) {
 
     async function loadData() {
       setLoading(true);
+      setError(null);
       try {
         const [salesRes, purchasesRes, expensesRes, productsRes] =
           await Promise.all([
-            fetch(`/api/sales?period=${month}`, { cache: "no-store" }),
-            fetch(`/api/inventory/purchases?month=${month}`, { cache: "no-store" }),
-            fetch(`/api/expenses/payments?from_date=${month}-01&to_date=${monthLastDay(month)}`, { cache: "no-store" }),
-            fetch(`/api/sales/summary/products?period=${month}`, { cache: "no-store" }),
+            fetch(`/api/sales?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
+            fetch(`/api/inventory/purchases?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
+            fetch(`/api/expenses/payments?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
+            fetch(`/api/sales/summary/products?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
           ]);
 
-        if (![salesRes, purchasesRes, expensesRes, productsRes].every((response) => response.ok)) throw new Error("No se pudo cargar el panel del mes seleccionado.");
+        if (![salesRes, purchasesRes, expensesRes, productsRes].every((response) => response.ok)) throw new Error("No se pudo cargar el panel del período seleccionado.");
         const [salesPayload, purchasesPayload, expensesPayload, productsPayload] =
           await Promise.all([
             safeJson(salesRes),
@@ -123,7 +124,7 @@ export default function ControlPanel({ month }: { month: string }) {
         );
       } catch {
         if (cancelled) return;
-        setError("No se pudo cargar el panel del mes seleccionado.");
+        setError("No se pudo cargar el panel del período seleccionado.");
         setSales([]);
         setPurchases([]);
         setExpenses([]);
@@ -138,7 +139,7 @@ export default function ControlPanel({ month }: { month: string }) {
     return () => {
       cancelled = true;
     };
-  }, [month]);
+  }, [range]);
 
   const totalSales = sales.reduce((sum, sale) => sum + safeNumber(sale.total), 0);
   const totalCourtesy = sales.reduce((sum, sale) => sum + safeNumber(sale.courtesy_total), 0);
@@ -162,32 +163,32 @@ export default function ControlPanel({ month }: { month: string }) {
     <div className="space-y-6">
       {error ? <p role="alert" className="text-red">{error}</p> : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Ventas del mes" value={loading ? "Cargando..." : formatMoney(totalSales)} />
-        <StatCard title="Cortesías del mes" value={loading ? "Cargando..." : formatMoney(totalCourtesy)} />
-        <StatCard title="Compras del mes" value={loading ? "Cargando..." : formatMoney(totalPurchases)} />
-        <StatCard title="Gastos del mes" value={loading ? "Cargando..." : formatMoney(totalExpenses)} />
-        <StatCard title="Ingresos vs egresos del mes" value={loading ? "Cargando..." : `${formatMoney(totalSales)} / ${formatMoney(totalPurchases + totalExpenses)}`} />
+        <StatCard title="Ventas del período" value={loading ? "Cargando..." : formatMoney(totalSales)} />
+        <StatCard title="Cortesías del período" value={loading ? "Cargando..." : formatMoney(totalCourtesy)} />
+        <StatCard title="Compras del período" value={loading ? "Cargando..." : formatMoney(totalPurchases)} />
+        <StatCard title="Gastos del período" value={loading ? "Cargando..." : formatMoney(totalExpenses)} />
+        <StatCard title="Ingresos vs egresos" value={loading ? "Cargando..." : `${formatMoney(totalSales)} / ${formatMoney(totalPurchases + totalExpenses)}`} />
       </div>
 
       <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-xl font-semibold text-black dark:text-white">Ingresos por medio de pago</h3>
-            <p className="text-sm text-body">Ingresos del mes seleccionado.</p>
+            <p className="text-sm text-body">Ingresos del período seleccionado.</p>
           </div>
 
         </div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Efectivo" value={formatMoney(monthlyPayments?.cash_total)} helper={month} />
-          <StatCard title="Transferencia" value={formatMoney(monthlyPayments?.transfer_total)} helper={month} />
-          <StatCard title="Datáfono" value={formatMoney(monthlyPayments?.dataphone_total)} helper={month} />
-          <StatCard title="Total del mes" value={formatMoney(monthlyPayments?.total)} helper={loading ? "Cargando..." : month} />
+          <StatCard title="Efectivo" value={formatMoney(monthlyPayments?.cash_total)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Transferencia" value={formatMoney(monthlyPayments?.transfer_total)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Datáfono" value={formatMoney(monthlyPayments?.dataphone_total)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Total del período" value={formatMoney(monthlyPayments?.total)} helper={loading ? "Cargando..." : `${range.from} — ${range.to}`} />
         </div>
       </section>
 
       <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <h3 className="text-xl font-semibold text-black dark:text-white">Frecuencia de ingresos por medio de pago</h3>
-        <p className="mb-3 text-sm text-body">Distribución de los ingresos del mes {month}.</p>
+        <p className="mb-3 text-sm text-body">Distribución de los ingresos entre {range.from} y {range.to}.</p>
         {loading ? (
           <p className="text-sm text-body">Cargando gráfica...</p>
         ) : (

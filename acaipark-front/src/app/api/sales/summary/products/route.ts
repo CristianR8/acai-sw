@@ -43,9 +43,8 @@ function errorToJson(error: unknown) {
 export async function GET(request: Request) {
   const backendBaseUrl = getBackendBaseUrl();
   const requestUrl = new URL(request.url);
-  const period = requestUrl.searchParams.get("period");
   const baseUrl = toAbsoluteUrl(backendBaseUrl, "/sales/summary/products");
-  const url = period ? `${baseUrl}?period=${encodeURIComponent(period)}` : baseUrl;
+  const url = `${baseUrl}${requestUrl.search}`;
 
   let response: Response;
   try {

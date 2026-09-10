@@ -1,6 +1,7 @@
 "use client";
 
-import MonthFilter, { currentMonth } from "@/components/MonthFilter";
+import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
+import DateRangeFilter, { currentMonthRange } from "@/components/DateRangeFilter";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 
@@ -31,6 +32,7 @@ export default function PurchasesHistory() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [month, setMonth] = useState(currentMonth);
+  const [range, setRange] = useState(currentMonthRange);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -51,7 +53,7 @@ export default function PurchasesHistory() {
     setLoadError(null);
     const timer = window.setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ month });
+        const params = new URLSearchParams({ from_date: range.from, to_date: range.to });
         if (search.trim()) params.set("search", search.trim());
         const response = await fetch(`/api/inventory/purchases?${params}`, { cache: "no-store", signal: controller.signal });
         const payload = await response.json();
@@ -64,7 +66,7 @@ export default function PurchasesHistory() {
       }
     }, search ? 250 : 0);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [month, search, reloadToken]);
+  }, [range, search, reloadToken]);
 
   useEffect(() => {
     void Promise.all([
@@ -124,7 +126,7 @@ export default function PurchasesHistory() {
       if (!response.ok) { setFormMessage(payload?.message ?? "No se pudo registrar la compra."); return; }
       setShowForm(false);
       resetForm();
-      setMonth(purchaseDate.slice(0, 7));
+      setRange({ from: `${purchaseDate.slice(0, 7)}-01`, to: new Date(Number(purchaseDate.slice(0, 4)), Number(purchaseDate.slice(5, 7)), 0).toISOString().slice(0, 10) });
       setReloadToken((value) => value + 1);
     } catch {
       setFormMessage("No se pudo registrar la compra.");
@@ -135,9 +137,11 @@ export default function PurchasesHistory() {
 
   return (
     <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
-      <MonthFilter value={month} onChange={setMonth} />
+      <MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}>
+        <DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} />
+      </MonthFilter>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del mes seleccionado.</p></div>
+        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del rango seleccionado.</p></div>
         <button type="button" onClick={() => { setShowForm((value) => !value); setFormMessage(null); }} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Registrar compra</button>
       </div>
 

@@ -8,6 +8,7 @@ const ADMIN_ONLY_PATHS = [
   "/dashboard",
   "/personnel",
   "/sales",
+  "/cash-closing",
   "/inventory/purchases",
   "/expenses",
 ];

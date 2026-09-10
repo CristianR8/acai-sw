@@ -361,6 +361,16 @@ class CashDrawerOpening(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class CashDrawerClosing(Base):
+    __tablename__ = "cash_drawer_closings"
+    __table_args__ = (UniqueConstraint("business_date", name="uq_cash_drawer_closing_day"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    business_date = Column(Date, nullable=False, index=True)
+    denomination_counts = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class Sale(Base):
     __tablename__ = "sales"
 
@@ -375,6 +385,7 @@ class Sale(Base):
     total = Column(Numeric(14, 2), nullable=False, default=0)
     payment_method = Column(String(30), nullable=True)
     cash_received = Column(Numeric(14, 2), nullable=True)
+    cash_denomination_counts = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     order = relationship("PosOrder", back_populates="sale")

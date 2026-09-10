@@ -64,6 +64,13 @@ export const NAV_DATA: NavigationSection[] = [
         items: [],
         adminOnly: true,
       },
+      {
+        title: "Cierre de caja",
+        url: "/cash-closing",
+        icon: Icons.MdOutlinePayments,
+        items: [],
+        adminOnly: true,
+      },
       // Calendario conservado en el código, temporalmente oculto.
       // {
       //   title: "Calendar",
