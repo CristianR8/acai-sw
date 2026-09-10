@@ -1,5 +1,6 @@
 "use client";
 
+import MonthFilter, { currentMonth } from "@/components/MonthFilter";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 
@@ -29,7 +30,8 @@ export default function PurchasesHistory() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [fullHistory, setFullHistory] = useState(false);
+  const [month, setMonth] = useState(currentMonth);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -42,17 +44,26 @@ export default function PurchasesHistory() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setPurchases([]);
+    setLoadError(null);
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      const params = new URLSearchParams({ history: fullHistory ? "all" : "recent" });
-      if (search.trim()) params.set("search", search.trim());
-      const response = await fetch(`/api/inventory/purchases?${params}`, { cache: "no-store" });
-      const payload = await response.json().catch(() => null);
-      setPurchases(response.ok && Array.isArray(payload) ? payload : []);
-      setLoading(false);
+      try {
+        const params = new URLSearchParams({ month });
+        if (search.trim()) params.set("search", search.trim());
+        const response = await fetch(`/api/inventory/purchases?${params}`, { cache: "no-store", signal: controller.signal });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.message || "No se pudieron cargar las compras.");
+        if (!controller.signal.aborted) setPurchases(Array.isArray(payload) ? payload : []);
+      } catch (error) {
+        if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "No se pudieron cargar las compras.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     }, search ? 250 : 0);
-    return () => window.clearTimeout(timer);
-  }, [fullHistory, search, reloadToken]);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [month, search, reloadToken]);
 
   useEffect(() => {
     void Promise.all([
@@ -111,7 +122,7 @@ export default function PurchasesHistory() {
       if (!response.ok) { setFormMessage(payload?.message ?? "No se pudo registrar la compra."); return; }
       setShowForm(false);
       resetForm();
-      setFullHistory(false);
+      setMonth(purchaseDate.slice(0, 7));
       setReloadToken((value) => value + 1);
     } catch {
       setFormMessage("No se pudo registrar la compra.");
@@ -122,8 +133,9 @@ export default function PurchasesHistory() {
 
   return (
     <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
+      <MonthFilter value={month} onChange={setMonth} />
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">{fullHistory ? "Historial completo de compras." : "Mostrando los últimos 10 registros."}</p></div>
+        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del mes seleccionado.</p></div>
         <button type="button" onClick={() => { setShowForm((value) => !value); setFormMessage(null); }} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Registrar compra</button>
       </div>
 
@@ -164,7 +176,8 @@ export default function PurchasesHistory() {
         </div>
       ) : null}
 
-      <div className="mb-5 flex flex-wrap gap-3"><button onClick={() => { setFullHistory((value) => !value); setSearch(""); }} className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white">{fullHistory ? "Ver últimos registros" : "Ver historial completo"}</button>{fullHistory ? <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por proveedor, producto o número" className="min-w-[260px] flex-1 rounded-md border border-stroke px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-dark-2 dark:text-white" /> : null}</div>
+      <div className="mb-5 flex flex-wrap gap-3"><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Buscar compras del mes" placeholder="Buscar por proveedor, producto o número" className="min-w-[260px] flex-1 rounded-md border border-stroke px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></div>
+      {loadError ? <p role="alert" className="text-red">{loadError}</p> : null}
       {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[700px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id} className="border-b border-stroke dark:border-dark-3"><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}</td><td className="px-3 py-3 text-sm text-body">{date(purchase.purchased_at ?? purchase.received_at ?? purchase.created_at)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => item.product_name || `#${item.id}`).join(", ")}</td><td className="px-3 py-3 text-right font-semibold text-dark dark:text-white">{money(purchase.total_cost)}</td></tr>)}</tbody></table></div>}
     </div>
   );

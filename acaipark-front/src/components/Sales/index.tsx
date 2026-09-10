@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import MonthFilter, { currentMonth, initialDay, monthLastDay } from "@/components/MonthFilter";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -76,16 +77,6 @@ type DailyPaymentSummary = {
 const SALES_HISTORY_PAGE_SIZE = 10;
 const ADJUSTMENTS_MONTHLY_PAGE_SIZE = 8;
 const SALES_BY_PRODUCT_PAGE_SIZE = 8;
-type TimeFilter = "all" | "week" | "month" | "quarter" | "year";
-
-const TIME_FILTER_OPTIONS: Array<{ value: TimeFilter; label: string }> = [
-  { value: "all", label: "Mostrar todo" },
-  { value: "week", label: "Semana" },
-  { value: "month", label: "1 mes" },
-  { value: "quarter", label: "3 meses" },
-  { value: "year", label: "Año" },
-];
-
 function safeNumber(value: unknown) {
   const num =
     typeof value === "number" ? value : Number.parseFloat(String(value));
@@ -214,32 +205,12 @@ function PaginationControls({
   );
 }
 
-function TimeFilterSelect({
-  value,
-  onChange,
-}: {
-  value: TimeFilter;
-  onChange: (nextValue: TimeFilter) => void;
-}) {
-  return (
-    <label className="text-body flex items-center gap-2 text-sm">
-      Tiempo
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as TimeFilter)}
-        className="rounded-md border border-stroke bg-white px-2 py-1 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-dark-2 dark:text-white"
-      >
-        {TIME_FILTER_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+export default function Sales() {
+  const [month, setMonth] = useState(currentMonth);
+  return <><MonthFilter value={month} onChange={setMonth} /><MonthlySales key={month} month={month} /></>;
 }
 
-export default function Sales() {
+function MonthlySales({ month }: { month: string }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
   const [salesAdjustmentsByMonth, setSalesAdjustmentsByMonth] = useState<
@@ -248,23 +219,17 @@ export default function Sales() {
   const [salesHistoryPage, setSalesHistoryPage] = useState(1);
   const [salesByProductPage, setSalesByProductPage] = useState(1);
   const [adjustmentsMonthlyPage, setAdjustmentsMonthlyPage] = useState(1);
-  const [salesHistoryFilter, setSalesHistoryFilter] =
-    useState<TimeFilter>("all");
-  const [salesByProductFilter, setSalesByProductFilter] =
-    useState<TimeFilter>("all");
-  const [adjustmentsMonthlyFilter, setAdjustmentsMonthlyFilter] =
-    useState<TimeFilter>("all");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [closingDay, setClosingDay] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
+  const [closingDay, setClosingDay] = useState(() => initialDay(month));
   const [dailyPayments, setDailyPayments] = useState<DailyPaymentSummary | null>(null);
   const [dailyPaymentsLoading, setDailyPaymentsLoading] = useState(true);
 
   const withPeriodParam = useCallback(
-    (basePath: string, period: TimeFilter) => {
-      return `${basePath}?period=${encodeURIComponent(period)}`;
+    (basePath: string) => {
+      return `${basePath}?period=${encodeURIComponent(month)}`;
     },
-    [],
+    [month],
   );
 
   const loadSalesData = useCallback(async () => {
@@ -276,11 +241,11 @@ export default function Sales() {
         productsResponse,
         adjustmentsMonthlyResponse,
       ] = await Promise.all([
-        fetch(withPeriodParam("/api/sales", salesHistoryFilter), {
+        fetch(withPeriodParam("/api/sales"), {
           cache: "no-store",
         }),
         fetch(
-          withPeriodParam("/api/sales/summary/products", salesByProductFilter),
+          withPeriodParam("/api/sales/summary/products"),
           {
             cache: "no-store",
           },
@@ -288,7 +253,6 @@ export default function Sales() {
         fetch(
           withPeriodParam(
             "/api/sales/summary/adjustments/monthly",
-            adjustmentsMonthlyFilter,
           ),
           { cache: "no-store" },
         ),
@@ -344,9 +308,6 @@ export default function Sales() {
       setLoading(false);
     }
   }, [
-    adjustmentsMonthlyFilter,
-    salesByProductFilter,
-    salesHistoryFilter,
     withPeriodParam,
   ]);
 
@@ -417,15 +378,15 @@ export default function Sales() {
 
   useEffect(() => {
     setSalesHistoryPage(1);
-  }, [salesHistoryFilter]);
+  }, [month]);
 
   useEffect(() => {
     setSalesByProductPage(1);
-  }, [salesByProductFilter]);
+  }, [month]);
 
   useEffect(() => {
     setAdjustmentsMonthlyPage(1);
-  }, [adjustmentsMonthlyFilter]);
+  }, [month]);
 
   const paginatedSalesHistory = useMemo(() => {
     const start = (salesHistoryPage - 1) * SALES_HISTORY_PAGE_SIZE;
@@ -482,7 +443,7 @@ export default function Sales() {
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <button type="button" onClick={() => moveClosingDay(-1)} className="rounded-lg border border-stroke px-3 py-2 text-sm font-medium text-black hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2">Día anterior</button>
-            <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">Día<input type="date" value={closingDay} onChange={(event) => setClosingDay(event.target.value)} className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white" /></label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">Día<input type="date" min={`${month}-01`} max={monthLastDay(month)} value={closingDay} onChange={(event) => event.target.value.startsWith(`${month}-`) && setClosingDay(event.target.value)} className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white" /></label>
             <button type="button" onClick={() => { window.location.href = `/api/sales/summary/daily-payment-methods/export?day=${encodeURIComponent(closingDay)}`; }} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Descargar Excel</button>
           </div>
         </div>
@@ -505,10 +466,6 @@ export default function Sales() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <TimeFilterSelect
-              value={salesHistoryFilter}
-              onChange={setSalesHistoryFilter}
-            />
             <button
               type="button"
               onClick={loadSalesData}
@@ -610,10 +567,6 @@ export default function Sales() {
               </h3>
               <p className="text-body text-sm">Acumulado por producto y tamaño de vaso para açaí personalizado.</p>
             </div>
-            <TimeFilterSelect
-              value={salesByProductFilter}
-              onChange={setSalesByProductFilter}
-            />
           </div>
           {loading ? (
             <p className="text-body text-sm">Cargando resumen...</p>
@@ -671,10 +624,6 @@ export default function Sales() {
                 Cantidad de ajustes aplicados agrupados por mes.
               </p>
             </div>
-            <TimeFilterSelect
-              value={adjustmentsMonthlyFilter}
-              onChange={setAdjustmentsMonthlyFilter}
-            />
           </div>
           {loading ? (
             <p className="text-body text-sm">Cargando resumen...</p>

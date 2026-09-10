@@ -11,18 +11,19 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from sqlalchemy import case, func
+from sqlalchemy import case, func, literal
 from sqlalchemy.orm import Session
 
 from . import db, models, schemas
+from .reporting_periods import month_bounds
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 COLOMBIA_TZ = ZoneInfo("America/Bogota")
 
 
 def _period_start(period: str | None) -> datetime | None:
-    if not period:
-        return None
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        return month_bounds(period)[0]
     if period == "all":
         return None
     days_by_period = {
@@ -46,7 +47,9 @@ def list_sales(period: str | None = None, db_session: Session = Depends(db.get_d
     start_date = _period_start(period)
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
-    return query.order_by(models.Sale.id.desc()).limit(200).all()
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        query = query.filter(models.Sale.created_at < month_bounds(period)[1])
+    return query.order_by(models.Sale.id.desc()).all()
 
 
 @router.get("/{sale_id}", response_model=schemas.SaleOut)
@@ -128,102 +131,113 @@ def export_daily_payment_methods_xlsx(
         .order_by(models.FixedExpense.name.asc())
         .all()
     )
-    total_expenses = sum(
-        (Decimal(expense.amount or 0) for expense in daily_expenses),
-        Decimal("0"),
-    )
+    start = datetime.combine(day, time.min, tzinfo=COLOMBIA_TZ)
+    cash_sales = db_session.query(models.Sale).filter(
+        models.Sale.created_at >= start,
+        models.Sale.created_at < start + timedelta(days=1),
+        func.coalesce(models.Sale.payment_method, "cash") == "cash",
+    ).all()
+    openings = db_session.query(models.CashDrawerOpening).filter(
+        models.CashDrawerOpening.business_date == day,
+    ).all()
+    opening_total = sum((Decimal(item.opening_amount) for item in openings), Decimal("0"))
+    counts = defaultdict(int)
+    for sale in cash_sales:
+        for denomination, quantity in (sale.cash_denominations or {}).items():
+            counts[int(denomination)] += quantity
+    missing = sum(sale.cash_denominations is None for sale in cash_sales)
 
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "Cierre de caja"
     styles = openpyxl.styles
-    dark_green = "174D3D"
-    light_green = "E8F1ED"
-    pale_green = "DFF0D8"
-    border = styles.Border(
-        left=styles.Side(style="thin", color="B7C3BE"),
-        right=styles.Side(style="thin", color="B7C3BE"),
-        top=styles.Side(style="thin", color="B7C3BE"),
-        bottom=styles.Side(style="thin", color="B7C3BE"),
-    )
+    border = styles.Border(**{side: styles.Side(style="thin", color="B7C3BE") for side in ("left", "right", "top", "bottom")})
+    money_format = '$ #,##0.00;[Red]-$ #,##0.00;$ "-"'
 
-    def section(title: str, row: int):
-        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
-        cell = sheet.cell(row=row, column=1, value=title)
-        cell.fill = styles.PatternFill("solid", fgColor=dark_green)
-        cell.font = styles.Font(bold=True, color="FFFFFF", size=13)
-        cell.alignment = styles.Alignment(horizontal="left")
+    def section(row, title, first=1, last=6):
+        sheet.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+        for col in range(first, last + 1):
+            cell = sheet.cell(row, col)
+            cell.fill = styles.PatternFill("solid", fgColor="174D3D")
+        cell = sheet.cell(row, first, title)
+        cell.font = styles.Font(bold=True, color="FFFFFF", size=11)
 
-    def header(row: int, values: list[str]):
-        for column, value in enumerate(values, start=1):
-            cell = sheet.cell(row=row, column=column, value=value)
-            cell.fill = styles.PatternFill("solid", fgColor=light_green)
-            cell.font = styles.Font(bold=True, color=dark_green, size=12)
-            cell.alignment = styles.Alignment(horizontal="center")
+    def cells(row, values, first=1, total=False):
+        for col, value in enumerate(values, first):
+            cell = sheet.cell(row, col, value)
             cell.border = border
-
-    def money_row(row: int, label: str, reference: str, amount: Decimal, *, total: bool = False):
-        values = [label, reference, float(amount)]
-        for column, value in enumerate(values, start=1):
-            cell = sheet.cell(row=row, column=column, value=value)
-            cell.border = border
-            cell.alignment = styles.Alignment(
-                horizontal="right" if column == 3 else "left",
-                vertical="center",
-            )
+            cell.alignment = styles.Alignment(vertical="center", wrap_text=True)
             if total:
-                cell.fill = styles.PatternFill("solid", fgColor=light_green)
-                cell.font = styles.Font(bold=True, size=12)
-        sheet.cell(row=row, column=2).font = styles.Font(italic=True, color="6B7280") if not total else styles.Font(bold=True, size=12)
-        sheet.cell(row=row, column=3).number_format = '$#,##0'
+                cell.fill = styles.PatternFill("solid", fgColor="E8F1ED")
+                cell.font = styles.Font(bold=True, color="174D3D")
+            if col in (3, 6):
+                cell.number_format = money_format
 
-    section("3. RESUMEN DE VENTAS Y MEDIOS DE PAGO", 1)
-    sheet.cell(row=2, column=1, value="Fecha del cierre")
-    sheet.cell(row=2, column=2, value=day.strftime("%d/%m/%Y"))
-    header(4, ["Medio de Pago", "Comprobante / Ref", "Monto Sistema ($)"])
-    money_row(5, "Ventas en Efectivo", "POS Sistema", totals["cash"])
-    money_row(6, "Datáfono / Tarjetas", "Vouchers / Lote", totals["dataphone"])
-    money_row(7, "Transferencias", "Transferencias", totals["transfer"])
-    money_row(8, "TOTAL VENTAS REGISTRADAS", "", totals["total"], total=True)
-
-    expense_start = 10
-    section("4. GASTOS REGISTRADOS DEL DÍA", expense_start)
-    header(expense_start + 1, ["Gasto", "Categoría / Ref", "Monto Sistema ($)"])
-    row = expense_start + 2
-    if daily_expenses:
-        for expense in daily_expenses:
-            money_row(
-                row,
-                expense.fixed_expense.name,
-                expense.fixed_expense.category or "Gasto manual",
-                Decimal(expense.amount or 0),
-            )
-            row += 1
-    else:
-        for column, value in enumerate(["Sin gastos registrados", "", 0], start=1):
-            cell = sheet.cell(row=row, column=column, value=value)
-            cell.border = border
-        sheet.cell(row=row, column=3).number_format = '$#,##0'
+    section(1, "CIERRE DE CAJA DIARIO")
+    cells(2, ["Fecha", day.strftime("%d/%m/%Y")])
+    sheet.merge_cells("D2:F2")
+    sheet["D2"] = "Cajero(a): __________________________"
+    section(4, "EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", 1, 3)
+    section(4, "RESUMEN DE VENTAS Y MEDIOS DE PAGO", 4, 6)
+    cells(5, ["Denominación", "Cantidad", "Total ($)", "Medio de Pago", "Comprobante / Ref", "Monto Sistema ($)"], total=True)
+    for row, denomination in enumerate([100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50], 6):
+        cells(row, [denomination, counts[denomination], f"=A{row}*B{row}"])
+        sheet.cell(row, 1).number_format = money_format
+    cells(17, ["TOTAL EFECTIVO RECIBIDO", "", "=SUM(C6:C16)"], total=True)
+    cells(6, ["Ventas en Efectivo", "POS Sistema", float(totals["cash"])], 4)
+    cells(7, ["Datáfono / Tarjetas", "Vouchers / Lote", float(totals["dataphone"])], 4)
+    cells(8, ["Transferencias", "Bancos / billeteras", float(totals["transfer"])], 4)
+    cells(9, ["TOTAL VENTAS REGISTRADAS", "", "=SUM(F6:F8)"], 4, True)
+    section(11, "GASTOS Y SALIDAS DE CAJA", 4, 6)
+    cells(12, ["Gasto", "Concepto / Ref", "Monto ($)"], 4, True)
+    row = 13
+    for expense in daily_expenses:
+        cells(row, [expense.fixed_expense.name, expense.concept or expense.fixed_expense.category or "", float(expense.amount)], 4)
         row += 1
-    money_row(row, "TOTAL GASTOS DEL DÍA", "", total_expenses, total=True)
-
-    reconciliation_start = row + 2
-    section("5. CONCILIACIÓN FINAL DE CAJA", reconciliation_start)
-    money_row(reconciliation_start + 1, "Efectivo registrado en sistema", "Ventas en efectivo", totals["cash"])
-    money_row(reconciliation_start + 2, "Gastos registrados del día", "Salidas de caja", total_expenses)
-    money_row(
-        reconciliation_start + 3,
-        "EFECTIVO NETO ESPERADO EN CAJA",
-        "Efectivo - gastos",
-        totals["cash"] - total_expenses,
-        total=True,
-    )
-
-    sheet.freeze_panes = "A4"
+    if not daily_expenses:
+        cells(row, ["Sin gastos registrados", "", 0], 4)
+        row += 1
+    expense_total_row = row
+    cells(row, ["TOTAL GASTOS CAJA", "", f"=SUM(F13:F{row-1})"], 4, True)
+    row = max(row, 17) + 2
+    section(row, "CONCILIACIÓN FINAL DE CAJA")
+    def reconciliation(offset, label, value, total=False):
+        r = row + offset
+        sheet.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        cells(r, [label], total=total)
+        cells(r, [value], 6, total)
+    reconciliation(1, "Base Inicial (aperturas registradas del día)", float(opening_total) if openings else None)
+    reconciliation(2, "Ventas Efectivo", "=F6")
+    reconciliation(3, "Gastos registrados del día", f"=F{expense_total_row}")
+    reconciliation(4, "Efectivo Esperado en Caja (= Base Inicial + Ventas Efectivo - Gastos)", f'=IF(F{row+1}="","",F{row+1}+F{row+2}-F{row+3})', True)
+    reconciliation(5, "Efectivo Real en Caja (conteo físico al cierre)", None)
+    sheet.cell(row+5, 6).fill = styles.PatternFill("solid", fgColor="FFF2CC")
+    reconciliation(6, "DIFERENCIA DE CAJA (Real - Esperado)", f'=IF(OR(F{row+5}="",F{row+4}=""),"",F{row+5}-F{row+4})', True)
+    section(row+8, "OBSERVACIONES / NOVEDADES DEL TURNO")
+    sheet.merge_cells(start_row=row+9, start_column=1, end_row=row+11, end_column=6)
+    notes = ["Las denominaciones corresponden al efectivo recibido en pagos; no descuentan cambio ni gastos. Registre el conteo físico final en la celda amarilla."]
+    if missing:
+        notes.append(f"{missing} pago(s) en efectivo sin desglose de denominaciones; no se incluyen en el total recibido por denominación.")
+    if not openings:
+        notes.append("No hay base inicial registrada para esta fecha; conciliación pendiente.")
+    sheet.cell(row+9, 1, " ".join(notes)).alignment = styles.Alignment(wrap_text=True, vertical="top")
+    sheet.merge_cells(start_row=row+14, start_column=1, end_row=row+14, end_column=3)
+    sheet.cell(row+14, 1, "Firma Cajero(a) / Responsable: __________________")
+    sheet.merge_cells(start_row=row+14, start_column=4, end_row=row+14, end_column=6)
+    sheet.cell(row+14, 4, "Firma Supervisor / Administrador: __________________")
+    for col, width in {"A": 29, "B": 13, "C": 21, "D": 31, "E": 25, "F": 22}.items():
+        sheet.column_dimensions[col].width = width
+    for r in range(1, row+15):
+        sheet.row_dimensions[r].height = 28
+    sheet.freeze_panes = "A6"
     sheet.sheet_view.showGridLines = False
-    sheet.column_dimensions["A"].width = 34
-    sheet.column_dimensions["B"].width = 28
-    sheet.column_dimensions["C"].width = 22
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 1
+    sheet.print_options.horizontalCentered = True
+    sheet.print_area = f"A1:F{row+14}"
 
     output = BytesIO()
     workbook.save(output)
@@ -269,6 +283,11 @@ def sales_by_product(period: str | None = None, db_session: Session = Depends(db
         query = query.filter(models.Sale.created_at >= start_date)
         notes_query = notes_query.filter(models.Sale.created_at >= start_date)
 
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        end_date = month_bounds(period)[1]
+        query = query.filter(models.Sale.created_at < end_date)
+        notes_query = notes_query.filter(models.Sale.created_at < end_date)
+
     # Historical sale lines do not retain the order-line ID or its note.
     # Match their stored attributes without joining and multiplying sale totals.
     sizes = defaultdict(set)
@@ -306,6 +325,7 @@ def sales_by_table(period: str | None = None, db_session: Session = Depends(db.g
             func.coalesce(func.count(models.Sale.id), 0).label("quantity"),
             func.coalesce(func.sum(models.Sale.total), 0).label("total"),
         )
+        .select_from(models.Sale)
         .join(models.PosOrder, models.PosOrder.id == models.Sale.order_id)
         .outerjoin(models.PosTable, models.PosTable.id == models.PosOrder.table_id)
         .group_by(models.PosOrder.table_id, models.PosTable.name, models.PosTable.is_active)
@@ -313,6 +333,8 @@ def sales_by_table(period: str | None = None, db_session: Session = Depends(db.g
     )
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        query = query.filter(models.Sale.created_at < month_bounds(period)[1])
     rows = query.all()
     return [
         schemas.SalesByTableOut(
@@ -332,8 +354,13 @@ def sales_adjustments_by_month(
     db_session: Session = Depends(db.get_db),
 ):
     start_date = _period_start(period)
-    year_expr = func.extract("year", models.Sale.created_at)
-    month_expr = func.extract("month", models.Sale.created_at)
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        selected_start, _ = month_bounds(period)
+        year_expr = literal(selected_start.year)
+        month_expr = literal(selected_start.month)
+    else:
+        year_expr = func.extract("year", models.Sale.created_at)
+        month_expr = func.extract("month", models.Sale.created_at)
 
     query = (
         db_session.query(
@@ -348,6 +375,7 @@ def sales_adjustments_by_month(
                 0,
             ).label("discount_count"),
         )
+        .select_from(models.Sale)
         .join(models.PosOrder, models.PosOrder.id == models.Sale.order_id)
         .outerjoin(models.PosOrderItem, models.PosOrderItem.order_id == models.PosOrder.id)
         .group_by(year_expr, month_expr)
@@ -355,6 +383,8 @@ def sales_adjustments_by_month(
     )
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
+    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
+        query = query.filter(models.Sale.created_at < month_bounds(period)[1])
     rows = query.all()
     return [
         schemas.SalesAdjustmentsByMonthOut(

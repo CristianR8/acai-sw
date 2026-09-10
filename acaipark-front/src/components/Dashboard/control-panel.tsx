@@ -1,21 +1,16 @@
 "use client";
 
+import { monthLastDay } from "@/components/MonthFilter";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DailyPaymentMethodChart } from "@/components/Dashboard/daily-payment-method-chart";
-import dayjs from "dayjs";
-import timezone from "dayjs/plugin/timezone";
-import utc from "dayjs/plugin/utc";
-import { useEffect, useMemo, useState } from "react";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-const COLOMBIA_TZ = "America/Bogota";
+import { useEffect, useState } from "react";
 
 type Sale = {
   id: number;
   total: number | string;
   courtesy_total: number | string;
+  payment_method?: string | null;
   created_at: string;
 };
 
@@ -33,14 +28,6 @@ type SalesByProduct = {
   name: string;
   category: string;
   quantity: number | string;
-  total: number | string;
-};
-
-type DailyPaymentSummary = {
-  date: string;
-  cash_total: number | string;
-  transfer_total: number | string;
-  dataphone_total: number | string;
   total: number | string;
 };
 
@@ -87,21 +74,6 @@ function formatQty(value: unknown) {
   }).format(num);
 }
 
-function parseDate(value: string | null | undefined) {
-  if (!value) return null;
-  const withOffset = /([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
-  const parsed = withOffset ? dayjs(value) : dayjs.tz(value, COLOMBIA_TZ);
-  return parsed.isValid() ? parsed.tz(COLOMBIA_TZ) : null;
-}
-
-function purchaseDate(purchase: Purchase) {
-  return parseDate(purchase.purchased_at ?? purchase.received_at ?? purchase.created_at);
-}
-
-function isOnOrAfter(date: dayjs.Dayjs, reference: dayjs.Dayjs) {
-  return date.isAfter(reference) || date.isSame(reference);
-}
-
 async function safeJson(response: Response) {
   try {
     return await response.json();
@@ -110,15 +82,13 @@ async function safeJson(response: Response) {
   }
 }
 
-export default function ControlPanel() {
+export default function ControlPanel({ month }: { month: string }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [topProducts, setTopProducts] = useState<SalesByProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDay, setSelectedDay] = useState(() => dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"));
-  const [dailyPayments, setDailyPayments] = useState<DailyPaymentSummary | null>(null);
-  const [dailyPaymentsLoading, setDailyPaymentsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,12 +98,13 @@ export default function ControlPanel() {
       try {
         const [salesRes, purchasesRes, expensesRes, productsRes] =
           await Promise.all([
-            fetch("/api/sales", { cache: "no-store" }),
-            fetch("/api/inventory/purchases?history=all", { cache: "no-store" }),
-            fetch("/api/expenses/payments?from_date=2000-01-01", { cache: "no-store" }),
-            fetch("/api/sales/summary/products", { cache: "no-store" }),
+            fetch(`/api/sales?period=${month}`, { cache: "no-store" }),
+            fetch(`/api/inventory/purchases?month=${month}`, { cache: "no-store" }),
+            fetch(`/api/expenses/payments?from_date=${month}-01&to_date=${monthLastDay(month)}`, { cache: "no-store" }),
+            fetch(`/api/sales/summary/products?period=${month}`, { cache: "no-store" }),
           ]);
 
+        if (![salesRes, purchasesRes, expensesRes, productsRes].every((response) => response.ok)) throw new Error("No se pudo cargar el panel del mes seleccionado.");
         const [salesPayload, purchasesPayload, expensesPayload, productsPayload] =
           await Promise.all([
             safeJson(salesRes),
@@ -152,6 +123,7 @@ export default function ControlPanel() {
         );
       } catch {
         if (cancelled) return;
+        setError("No se pudo cargar el panel del mes seleccionado.");
         setSales([]);
         setPurchases([]);
         setExpenses([]);
@@ -166,94 +138,20 @@ export default function ControlPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [month]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setDailyPaymentsLoading(true);
-    fetch(`/api/sales/summary/daily-payment-methods?day=${encodeURIComponent(selectedDay)}`, { cache: "no-store" })
-      .then(safeJson)
-      .then((payload) => {
-        if (!cancelled) setDailyPayments(payload && typeof payload === "object" ? payload as DailyPaymentSummary : null);
-      })
-      .catch(() => {
-        if (!cancelled) setDailyPayments(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDailyPaymentsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [selectedDay]);
-
-  const now = dayjs().tz(COLOMBIA_TZ);
-  const todayStart = now.startOf("day");
-  const weekStart = now.subtract(6, "day").startOf("day");
-  const monthStart = now.subtract(29, "day").startOf("day");
-  const yearStart = now.startOf("year");
-
-  const salesToday = useMemo(() => {
-    return sales.filter((sale) => {
-      const created = parseDate(sale.created_at);
-      return created ? isOnOrAfter(created, todayStart) : false;
-    });
-  }, [sales, todayStart]);
-
-  const sales7Days = useMemo(() => {
-    return sales.filter((sale) => {
-      const created = parseDate(sale.created_at);
-      return created ? isOnOrAfter(created, weekStart) : false;
-    });
-  }, [sales, weekStart]);
-
-  const sales30Days = useMemo(() => {
-    return sales.filter((sale) => {
-      const created = parseDate(sale.created_at);
-      return created ? isOnOrAfter(created, monthStart) : false;
-    });
-  }, [sales, monthStart]);
-
-  const salesYear = useMemo(() => {
-    return sales.filter((sale) => {
-      const created = parseDate(sale.created_at);
-      return created ? isOnOrAfter(created, yearStart) : false;
-    });
-  }, [sales, yearStart]);
-
-  const purchases30Days = useMemo(() => {
-    return purchases.filter((purchase) => {
-      const created = purchaseDate(purchase);
-      return created ? isOnOrAfter(created, monthStart) : false;
-    });
-  }, [purchases, monthStart]);
-
-  const totalSalesToday = salesToday.reduce(
-    (acc, sale) => acc + safeNumber(sale.total),
-    0,
-  );
-  const totalCourtesyToday = salesToday.reduce(
-    (acc, sale) => acc + safeNumber(sale.courtesy_total),
-    0,
-  );
-  const totalSales7Days = sales7Days.reduce(
-    (acc, sale) => acc + safeNumber(sale.total),
-    0,
-  );
-  const totalSales30Days = sales30Days.reduce(
-    (acc, sale) => acc + safeNumber(sale.total),
-    0,
-  );
-  const totalSalesYear = salesYear.reduce(
-    (acc, sale) => acc + safeNumber(sale.total),
-    0,
-  );
-  const totalPurchaseExpenses30Days = purchases30Days.reduce(
-    (acc, purchase) => acc + safeNumber(purchase.total_cost),
-    0,
-  );
-  const totalManualExpenses30Days = expenses.reduce((acc, expense) => {
-    const paidAt = parseDate(expense.payment_date);
-    return paidAt && isOnOrAfter(paidAt, monthStart) ? acc + safeNumber(expense.amount) : acc;
-  }, 0);
+  const totalSales = sales.reduce((sum, sale) => sum + safeNumber(sale.total), 0);
+  const totalCourtesy = sales.reduce((sum, sale) => sum + safeNumber(sale.courtesy_total), 0);
+  const totalPurchases = purchases.reduce((sum, purchase) => sum + safeNumber(purchase.total_cost), 0);
+  const totalExpenses = expenses.reduce((sum, expense) => sum + safeNumber(expense.amount), 0);
+  const monthlyPayments = sales.reduce((totals, sale) => {
+    const method = sale.payment_method || "cash";
+    if (method === "cash") totals.cash_total += safeNumber(sale.total);
+    if (method === "transfer") totals.transfer_total += safeNumber(sale.total);
+    if (method === "dataphone" || method === "card") totals.dataphone_total += safeNumber(sale.total);
+    totals.total += safeNumber(sale.total);
+    return totals;
+  }, { cash_total: 0, transfer_total: 0, dataphone_total: 0, total: 0 });
 
   const topProductsRows = topProducts
     .slice()
@@ -262,66 +160,41 @@ export default function ControlPanel() {
 
   return (
     <div className="space-y-6">
+      {error ? <p role="alert" className="text-red">{error}</p> : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Venta del dia"
-          value={formatMoney(totalSalesToday)}
-          helper={`Hora: ${now.format("HH:mm")}`}
-        />
-        <StatCard
-          title="Cortesias del dia"
-          value={formatMoney(totalCourtesyToday)}
-        />
-        <StatCard
-          title="Ventas 7 dias"
-          value={formatMoney(totalSales7Days)}
-        />
-        <StatCard
-          title="Ventas 30 dias"
-          value={formatMoney(totalSales30Days)}
-        />
-        <StatCard title="Ventas anuales" value={formatMoney(totalSalesYear)} />
-        <StatCard
-          title="Ingresos vs egresos"
-          value={`${formatMoney(totalSales30Days)} / ${formatMoney(totalPurchaseExpenses30Days + totalManualExpenses30Days)}`}
-          helper="Ultimos 30 dias"
-        />
+        <StatCard title="Ventas del mes" value={loading ? "Cargando..." : formatMoney(totalSales)} />
+        <StatCard title="Cortesías del mes" value={loading ? "Cargando..." : formatMoney(totalCourtesy)} />
+        <StatCard title="Compras del mes" value={loading ? "Cargando..." : formatMoney(totalPurchases)} />
+        <StatCard title="Gastos del mes" value={loading ? "Cargando..." : formatMoney(totalExpenses)} />
+        <StatCard title="Ingresos vs egresos del mes" value={loading ? "Cargando..." : `${formatMoney(totalSales)} / ${formatMoney(totalPurchases + totalExpenses)}`} />
       </div>
 
       <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-xl font-semibold text-black dark:text-white">Ingresos por medio de pago</h3>
-            <p className="text-sm text-body">Consulta los ingresos de un día específico.</p>
+            <p className="text-sm text-body">Ingresos del mes seleccionado.</p>
           </div>
-          <label className="flex flex-col gap-1 text-sm font-medium text-black dark:text-white">
-            Día
-            <input
-              type="date"
-              value={selectedDay}
-              onChange={(event) => setSelectedDay(event.target.value)}
-              className="rounded-md border border-stroke bg-transparent px-3 py-2 text-sm text-black dark:border-dark-3 dark:text-white"
-            />
-          </label>
+
         </div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Efectivo" value={formatMoney(dailyPayments?.cash_total)} helper={selectedDay} />
-          <StatCard title="Transferencia" value={formatMoney(dailyPayments?.transfer_total)} helper={selectedDay} />
-          <StatCard title="Datáfono" value={formatMoney(dailyPayments?.dataphone_total)} helper={selectedDay} />
-          <StatCard title="Total del día" value={formatMoney(dailyPayments?.total)} helper={dailyPaymentsLoading ? "Cargando..." : selectedDay} />
+          <StatCard title="Efectivo" value={formatMoney(monthlyPayments?.cash_total)} helper={month} />
+          <StatCard title="Transferencia" value={formatMoney(monthlyPayments?.transfer_total)} helper={month} />
+          <StatCard title="Datáfono" value={formatMoney(monthlyPayments?.dataphone_total)} helper={month} />
+          <StatCard title="Total del mes" value={formatMoney(monthlyPayments?.total)} helper={loading ? "Cargando..." : month} />
         </div>
       </section>
 
       <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <h3 className="text-xl font-semibold text-black dark:text-white">Frecuencia de ingresos por medio de pago</h3>
-        <p className="mb-3 text-sm text-body">Distribución de los ingresos del {selectedDay}.</p>
-        {dailyPaymentsLoading ? (
+        <p className="mb-3 text-sm text-body">Distribución de los ingresos del mes {month}.</p>
+        {loading ? (
           <p className="text-sm text-body">Cargando gráfica...</p>
         ) : (
           <DailyPaymentMethodChart
-            cash={safeNumber(dailyPayments?.cash_total)}
-            transfer={safeNumber(dailyPayments?.transfer_total)}
-            dataphone={safeNumber(dailyPayments?.dataphone_total)}
+            cash={safeNumber(monthlyPayments?.cash_total)}
+            transfer={safeNumber(monthlyPayments?.transfer_total)}
+            dataphone={safeNumber(monthlyPayments?.dataphone_total)}
           />
         )}
       </section>
