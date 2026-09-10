@@ -85,6 +85,9 @@ def _auto_migrate_schema() -> None:
                     "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
                 )
             )
+            conn.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS nit VARCHAR(50)"))
+            conn.execute(text("ALTER TABLE IF EXISTS suppliers ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_suppliers_nit ON suppliers(nit)"))
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS customers "

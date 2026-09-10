@@ -72,6 +72,8 @@ export default function Expenses() {
     () => payments.reduce((sum, payment) => sum + numericAmount(payment.amount), 0),
     [payments],
   );
+  const selectedExpense = expenses.find((expense) => expense.id === Number(expenseId));
+  const isCashierPayroll = selectedExpense?.name === "Nómina de cajero";
 
   async function registerPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,8 +136,8 @@ export default function Expenses() {
               {expenses.filter((expense) => expense.is_active).map((expense) => <option key={expense.id} value={expense.id}>{expense.name} · {expense.category}</option>)}
             </select>
           </label>
-          <label className="block text-sm font-medium text-dark dark:text-white">Concepto
-            <input type="text" value={concept} onChange={(event) => setConcept(event.target.value)} placeholder="Describe el concepto del gasto" className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />
+          <label className="block text-sm font-medium text-dark dark:text-white">{isCashierPayroll ? "Nombre del cajero/a" : "Concepto"}
+            <input type="text" value={concept} onChange={(event) => setConcept(event.target.value)} placeholder={isCashierPayroll ? "Nombre del cajero/a" : "Describe el concepto del gasto"} className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />
           </label>
           <label className="block text-sm font-medium text-dark dark:text-white">Fecha de pago
             <input type="date" value={paymentDate} max={localToday()} onChange={(event) => setPaymentDate(event.target.value)} required className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />

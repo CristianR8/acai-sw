@@ -136,6 +136,8 @@ class StockMovementOut(BaseModel):
 
 class SupplierBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    nit: str | None = Field(default=None, max_length=50)
+    contact_name: str | None = Field(default=None, max_length=200)
     phone: str | None = Field(default=None, max_length=50)
     gender: str = Field(default="male", max_length=20)
     is_active: bool = True
@@ -147,6 +149,8 @@ class SupplierCreate(SupplierBase):
 
 class SupplierUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    nit: str | None = Field(default=None, max_length=50)
+    contact_name: str | None = Field(default=None, max_length=200)
     phone: str | None = Field(default=None, max_length=50)
     gender: str | None = Field(default=None, max_length=20)
     is_active: bool | None = None

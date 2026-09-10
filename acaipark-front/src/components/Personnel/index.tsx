@@ -9,6 +9,8 @@ type TabKey = "customers" | "suppliers";
 type Supplier = {
   id: number;
   name: string;
+  nit?: string | null;
+  contact_name?: string | null;
   phone?: string | null;
   gender?: string | null;
   is_active: boolean;
@@ -93,6 +95,8 @@ export default function Personnel() {
   const [detailsTitle, setDetailsTitle] = useState("");
 
   const [nameInput, setNameInput] = useState("");
+  const [nitInput, setNitInput] = useState("");
+  const [contactNameInput, setContactNameInput] = useState("");
   const [documentInput, setDocumentInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
   const [genderInput, setGenderInput] = useState("male");
@@ -103,7 +107,7 @@ export default function Personnel() {
     const term = normalizeSearchText(searchTerm);
     if (!term) return suppliers;
     return suppliers.filter((supplier) =>
-      normalizeSearchText(supplier.name ?? "").includes(term),
+      normalizeSearchText(`${supplier.name ?? ""} ${supplier.nit ?? ""} ${supplier.contact_name ?? ""}`).includes(term),
     );
   }, [suppliers, searchTerm]);
 
@@ -167,6 +171,8 @@ export default function Personnel() {
 
   function resetForm() {
     setNameInput("");
+    setNitInput("");
+    setContactNameInput("");
     setDocumentInput("");
     setPhoneInput("");
     setGenderInput("male");
@@ -199,8 +205,12 @@ export default function Personnel() {
 
     if ("identity_document" in target) {
       setDocumentInput(target.identity_document ?? "");
+      setNitInput("");
+      setContactNameInput("");
     } else {
       setDocumentInput("");
+      setNitInput(target.nit ?? "");
+      setContactNameInput(target.contact_name ?? "");
     }
 
     if ("phone" in target) {
@@ -338,6 +348,8 @@ export default function Personnel() {
     }
 
     if (tab === "suppliers") {
+      payload.nit = nitInput.trim() || null;
+      payload.contact_name = contactNameInput.trim() || null;
       payload.phone = phone ? phone : null;
     }
 
@@ -513,9 +525,15 @@ export default function Personnel() {
           <div
             className={
               "mt-4 grid gap-3 " +
-              (tab === "customers" ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3")
+              (tab === "customers" ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-4")
             }
           >
+            {tab === "suppliers" ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">NIT</label>
+                <input value={nitInput} onChange={(e) => setNitInput(e.target.value)} placeholder="NIT" className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" />
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
                 Nombre
@@ -539,6 +557,13 @@ export default function Personnel() {
                   placeholder="Documento de identidad"
                   className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                 />
+              </div>
+            ) : null}
+
+            {tab === "suppliers" ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">Nombre de contacto</label>
+                <input value={contactNameInput} onChange={(e) => setContactNameInput(e.target.value)} placeholder="Persona de contacto" className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white" />
               </div>
             ) : null}
 
@@ -691,6 +716,8 @@ export default function Personnel() {
                   <div className="absolute inset-0 bg-black/60" />
                   <div className="relative z-10 space-y-2">
                     <h3 className="text-lg font-extrabold">{supplier.name}</h3>
+                    <p className="text-md font-semibold text-white/85">NIT: {supplier.nit || "-"}</p>
+                    <p className="text-md font-semibold text-white/85">Contacto: {supplier.contact_name || "-"}</p>
                     <p className="text-md font-semibold text-white/85">Telefono: {supplier.phone || "-"}</p>
                     <p
                       className={`text-sm font-semibold ${

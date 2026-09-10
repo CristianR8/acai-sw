@@ -49,6 +49,8 @@ def create_supplier(
 
     supplier = models.Supplier(
         name=payload.name.strip(),
+        nit=(payload.nit or "").strip() or None,
+        contact_name=(payload.contact_name or "").strip() or None,
         phone=payload.phone,
         gender=payload.gender.strip() if payload.gender else "male",
         is_active=payload.is_active,
@@ -97,6 +99,10 @@ def update_supplier(
 
     if "phone" in data and data["phone"] is not None:
         data["phone"] = data["phone"].strip() or None
+    if "nit" in data and data["nit"] is not None:
+        data["nit"] = data["nit"].strip() or None
+    if "contact_name" in data and data["contact_name"] is not None:
+        data["contact_name"] = data["contact_name"].strip() or None
     if "gender" in data and data["gender"] is not None:
         data["gender"] = data["gender"].strip() or "male"
 

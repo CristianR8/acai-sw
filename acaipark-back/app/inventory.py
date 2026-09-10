@@ -348,6 +348,8 @@ def create_supplier(
 
     supplier = models.Supplier(
         name=payload.name.strip(),
+        nit=(payload.nit or "").strip() or None,
+        contact_name=(payload.contact_name or "").strip() or None,
         phone=payload.phone,
         is_active=payload.is_active,
     )
@@ -391,6 +393,10 @@ def update_supplier(
         if existing:
             raise HTTPException(status_code=409, detail="Proveedor ya existe")
         data["name"] = candidate
+
+    for field in ("nit", "contact_name", "phone"):
+        if field in data and data[field] is not None:
+            data[field] = data[field].strip() or None
 
     for key, value in data.items():
         setattr(supplier, key, value)

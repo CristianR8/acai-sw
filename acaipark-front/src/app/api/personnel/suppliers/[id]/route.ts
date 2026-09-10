@@ -4,6 +4,8 @@ import { errorToJson, getBackendBaseUrl, safeJson, toAbsoluteUrl } from "../../_
 
 type SupplierUpdateBody = {
   name?: string;
+  nit?: string | null;
+  contact_name?: string | null;
   phone?: string | null;
   gender?: string;
   is_active?: boolean;
@@ -24,6 +26,8 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 
   const payloadToSend: Record<string, unknown> = {};
   if (body.name !== undefined) payloadToSend.name = body.name;
+  if (body.nit !== undefined) payloadToSend.nit = body.nit;
+  if (body.contact_name !== undefined) payloadToSend.contact_name = body.contact_name;
   if (body.phone !== undefined) payloadToSend.phone = body.phone;
   if (body.gender !== undefined) payloadToSend.gender = body.gender;
   if (body.is_active !== undefined) payloadToSend.is_active = body.is_active;

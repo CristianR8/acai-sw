@@ -104,6 +104,8 @@ class Supplier(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True, nullable=False)
+    nit = Column(String(50), nullable=True, index=True)
+    contact_name = Column(String(200), nullable=True)
     phone = Column(String, nullable=True)
     gender = Column(String, nullable=False, default="male")
     is_active = Column(Boolean, default=True)

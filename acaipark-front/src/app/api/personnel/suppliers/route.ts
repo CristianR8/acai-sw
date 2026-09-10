@@ -4,6 +4,8 @@ import { errorToJson, getBackendBaseUrl, safeJson, toAbsoluteUrl } from "../_uti
 
 type SupplierCreateBody = {
   name?: string;
+  nit?: string | null;
+  contact_name?: string | null;
   phone?: string | null;
   gender?: string;
   is_active?: boolean;
@@ -74,6 +76,8 @@ export async function POST(request: Request) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name,
+        nit: body.nit?.trim() || null,
+        contact_name: body.contact_name?.trim() || null,
         phone: phone ? phone : null,
         gender,
         is_active: body.is_active ?? true,
