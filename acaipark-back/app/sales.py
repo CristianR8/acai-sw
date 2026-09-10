@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from sqlalchemy import case, func, literal
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from . import db, models, schemas
@@ -354,27 +354,43 @@ def sales_adjustments_by_month(
     db_session: Session = Depends(db.get_db),
 ):
     start_date = _period_start(period)
+    courtesy_count = func.coalesce(
+        func.sum(case((models.PosOrderItem.courtesy.is_(True), 1), else_=0)),
+        0,
+    ).label("courtesy_count")
+    discount_count = func.coalesce(
+        func.sum(case((models.PosOrderItem.discount_amount > 0, 1), else_=0)),
+        0,
+    ).label("discount_count")
+
+    base_query = (
+        db_session.query(courtesy_count, discount_count)
+        .select_from(models.Sale)
+        .join(models.PosOrder, models.PosOrder.id == models.Sale.order_id)
+        .outerjoin(models.PosOrderItem, models.PosOrderItem.order_id == models.PosOrder.id)
+    )
+
     if not period or re.fullmatch(r"\d{4}-\d{2}", period):
         selected_start, _ = month_bounds(period)
-        year_expr = literal(selected_start.year)
-        month_expr = literal(selected_start.month)
-    else:
-        year_expr = func.extract("year", models.Sale.created_at)
-        month_expr = func.extract("month", models.Sale.created_at)
-
-    query = (
-        db_session.query(
-            year_expr.label("year"),
-            month_expr.label("month"),
-            func.coalesce(
-                func.sum(case((models.PosOrderItem.courtesy.is_(True), 1), else_=0)),
-                0,
-            ).label("courtesy_count"),
-            func.coalesce(
-                func.sum(case((models.PosOrderItem.discount_amount > 0, 1), else_=0)),
-                0,
-            ).label("discount_count"),
+        row = (
+            base_query
+            .filter(models.Sale.created_at >= selected_start)
+            .filter(models.Sale.created_at < month_bounds(period)[1])
+            .one()
         )
+        return [
+            schemas.SalesAdjustmentsByMonthOut(
+                year=selected_start.year,
+                month=selected_start.month,
+                courtesy_count=int(row.courtesy_count or 0),
+                discount_count=int(row.discount_count or 0),
+            )
+        ]
+
+    year_expr = func.extract("year", models.Sale.created_at)
+    month_expr = func.extract("month", models.Sale.created_at)
+    query = (
+        db_session.query(year_expr.label("year"), month_expr.label("month"), courtesy_count, discount_count)
         .select_from(models.Sale)
         .join(models.PosOrder, models.PosOrder.id == models.Sale.order_id)
         .outerjoin(models.PosOrderItem, models.PosOrderItem.order_id == models.PosOrder.id)
@@ -383,8 +399,6 @@ def sales_adjustments_by_month(
     )
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
-    if not period or re.fullmatch(r"\d{4}-\d{2}", period):
-        query = query.filter(models.Sale.created_at < month_bounds(period)[1])
     rows = query.all()
     return [
         schemas.SalesAdjustmentsByMonthOut(
