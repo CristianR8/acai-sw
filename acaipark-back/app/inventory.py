@@ -454,9 +454,21 @@ def create_purchase(
 
     purchase_supplier_id = resolve_supplier_id(payload.supplier_id)
     purchase_date = payload.purchased_at or datetime.utcnow()
+    invoice_id = (payload.invoice_id or "").strip() or None
+    purchase_month = date(purchase_date.year, purchase_date.month, 1)
+    month_group = (
+        db_session.query(models.InventoryMonthGroup)
+        .filter(models.InventoryMonthGroup.period == purchase_month)
+        .first()
+    )
+    if month_group is None:
+        month_group = models.InventoryMonthGroup(period=purchase_month)
+        db_session.add(month_group)
+        db_session.flush()
 
     purchase = models.Purchase(
         supplier_id=purchase_supplier_id,
+        invoice_id=invoice_id,
         purchased_at=purchase_date,
         received_at=payload.received_at or datetime.utcnow(),
         total_cost=Decimal("0"),
@@ -488,6 +500,7 @@ def create_purchase(
             quantity=qty,
             unit_cost=unit_cost,
             line_total=line_total,
+            month_group_id=month_group.id,
         )
         db_session.add(purchase_item)
 
@@ -552,6 +565,7 @@ def list_purchases(
                     func.lower(models.Supplier.name).like(term),
                     func.lower(models.InventoryProduct.name).like(term),
                     cast(models.Purchase.id, String).like(term),
+                    func.lower(models.Purchase.invoice_id).like(term),
                 )
             )
             .distinct()

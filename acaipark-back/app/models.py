@@ -117,6 +117,7 @@ class Purchase(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.id"), index=True, nullable=True)
+    invoice_id = Column(String(100), nullable=True, index=True)
     purchased_at = Column(DateTime(timezone=True), nullable=True)
     received_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -165,6 +166,10 @@ class PurchaseItem(Base):
     @property
     def product_name(self) -> str | None:
         return self.product.name if self.product else None
+
+    @property
+    def product_kind(self) -> str | None:
+        return self.product.kind if self.product else None
 
 
 class FixedExpense(Base):

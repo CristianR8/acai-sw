@@ -11,6 +11,7 @@ type PurchaseItemCreate = {
 
 type PurchaseCreateBody = {
   supplier_id?: number | null;
+  invoice_id?: string | null;
   purchased_at?: string;
   received_at?: string;
   items?: PurchaseItemCreate[];
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         supplier_id: body.supplier_id ?? null,
+        invoice_id: body.invoice_id ?? null,
         purchased_at: body.purchased_at,
         received_at: body.received_at,
         items: body.items,

@@ -232,6 +232,13 @@ export default function Inventory({
   >({ kind: "idle" });
   const [deletingIds, setDeletingIds] = useState<Set<number>>(() => new Set());
 
+  useEffect(() => {
+    const requestedKind = new URLSearchParams(window.location.search).get("kind");
+    if (requestedKind === "ingredient" || requestedKind === "material") {
+      setTab(requestedKind);
+    }
+  }, []);
+
   const exportInventoryUrl = useMemo(() => {
     const base = backendBaseUrl.replace(/\/$/, "");
     return `${base}/inventory/exports/inventory.xlsx`;

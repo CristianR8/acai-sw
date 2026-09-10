@@ -172,6 +172,7 @@ class PurchaseItemCreate(BaseModel):
 
 class PurchaseCreate(BaseModel):
     supplier_id: int | None = None
+    invoice_id: str | None = Field(default=None, max_length=100)
     purchased_at: datetime | None = None
     received_at: datetime | None = None
     items: list[PurchaseItemCreate] = Field(min_length=1)
@@ -181,6 +182,7 @@ class PurchaseItemOut(BaseModel):
     id: int
     product_id: int
     product_name: str | None
+    product_kind: str | None
     supplier_id: int | None
     quantity: Decimal
     unit_cost: Decimal
@@ -193,6 +195,7 @@ class PurchaseItemOut(BaseModel):
 class PurchaseOut(BaseModel):
     id: int
     supplier_id: int | None
+    invoice_id: str | None = None
     supplier_name: str | None = None
     purchased_at: datetime | None
     received_at: datetime | None

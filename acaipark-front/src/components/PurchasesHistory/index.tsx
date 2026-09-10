@@ -4,7 +4,7 @@ import MonthFilter, { currentMonth } from "@/components/MonthFilter";
 import { useEffect, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 
-type Purchase = { id: number; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; items: Array<{ id: number; product_name?: string | null }> };
+type Purchase = { id: number; invoice_id?: string | null; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; items: Array<{ id: number; product_name?: string | null; product_kind?: "ingredient" | "material" | null }> };
 type Supplier = { id: number; name: string };
 type Product = { id: number; name: string; kind: "ingredient" | "material"; unit?: string | null };
 type PurchaseRow = { mode: "existing" | "new"; productId: string; productName: string; kind: "ingredient" | "material"; unit: string; supplierId: string; quantity: string; totalCost: string };
@@ -37,6 +37,7 @@ export default function PurchasesHistory() {
   const [showForm, setShowForm] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [purchaseDate, setPurchaseDate] = useState(localDateInputValue());
+  const [invoiceId, setInvoiceId] = useState("");
   const [rows, setRows] = useState<PurchaseRow[]>([emptyRow()]);
   const [useSameSupplier, setUseSameSupplier] = useState(true);
   const [sharedSupplierId, setSharedSupplierId] = useState("");
@@ -74,6 +75,7 @@ export default function PurchasesHistory() {
 
   function resetForm() {
     setPurchaseDate(localDateInputValue());
+    setInvoiceId("");
     setRows([emptyRow()]);
     setUseSameSupplier(true);
     setSharedSupplierId("");
@@ -117,7 +119,7 @@ export default function PurchasesHistory() {
     setSaving(true);
     setFormMessage(null);
     try {
-      const response = await fetch("/api/inventory/purchases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, purchased_at: `${purchaseDate}T12:00:00`, items }) });
+      const response = await fetch("/api/inventory/purchases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, invoice_id: invoiceId.trim() || null, purchased_at: `${purchaseDate}T12:00:00`, items }) });
       const payload = await response.json().catch(() => null);
       if (!response.ok) { setFormMessage(payload?.message ?? "No se pudo registrar la compra."); return; }
       setShowForm(false);
@@ -143,6 +145,7 @@ export default function PurchasesHistory() {
         <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4 dark:bg-primary/10">
           <div className="mb-4 flex flex-wrap items-end gap-3">
             <label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">Fecha de compra<input type="date" value={purchaseDate} max={localDateInputValue()} onChange={(event) => setPurchaseDate(event.target.value)} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
+            <label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">ID Factura<input value={invoiceId} maxLength={100} onChange={(event) => setInvoiceId(event.target.value)} placeholder="Código alfanumérico" className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
             <label className="min-w-[220px] flex-1 text-sm font-medium text-dark dark:text-white">Proveedor para todos los productos<select value={sharedSupplierId} onChange={(event) => selectSharedSupplier(event.target.value)} disabled={!useSameSupplier} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark disabled:bg-gray-1 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:disabled:bg-dark-3"><option value="">Sin proveedor</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             <label className="flex items-center gap-2 pb-2 text-sm font-medium text-dark dark:text-white"><input type="checkbox" checked={useSameSupplier} onChange={(event) => changeSharedSupplierEnabled(event.target.checked)} />Usar el mismo proveedor en todas las filas</label>
           </div>
@@ -178,7 +181,7 @@ export default function PurchasesHistory() {
 
       <div className="mb-5 flex flex-wrap gap-3"><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Buscar compras del mes" placeholder="Buscar por proveedor, producto o número" className="min-w-[260px] flex-1 rounded-md border border-stroke px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></div>
       {loadError ? <p role="alert" className="text-red">{loadError}</p> : null}
-      {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[700px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id} className="border-b border-stroke dark:border-dark-3"><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}</td><td className="px-3 py-3 text-sm text-body">{date(purchase.purchased_at ?? purchase.received_at ?? purchase.created_at)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => item.product_name || `#${item.id}`).join(", ")}</td><td className="px-3 py-3 text-right font-semibold text-dark dark:text-white">{money(purchase.total_cost)}</td></tr>)}</tbody></table></div>}
+      {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[800px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">ID Factura</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th></tr></thead><tbody>{purchases.map((purchase) => { const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at; const purchaseMonth = purchaseDateValue.slice(0, 7); return <tr key={purchase.id} className="border-b border-stroke dark:border-dark-3"><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}</td><td className="px-3 py-3 text-sm text-body">{purchase.invoice_id || "-"}</td><td className="px-3 py-3 text-sm text-body">{date(purchaseDateValue)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => <a key={item.id} href={`/inventory?month=${encodeURIComponent(purchaseMonth)}&purchaseItem=${item.id}${item.product_kind ? `&kind=${item.product_kind}` : ""}`} className="mr-2 inline-block text-primary hover:underline">{item.product_name || `#${item.id}`}</a>)}</td><td className="px-3 py-3 text-right font-semibold text-dark dark:text-white">{money(purchase.total_cost)}</td></tr>; })}</tbody></table></div>}
     </div>
   );
 }

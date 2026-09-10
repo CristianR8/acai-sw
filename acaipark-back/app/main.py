@@ -19,6 +19,25 @@ def _auto_migrate_schema() -> None:
             conn.execute(text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_denominations JSON"))
             conn.execute(text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS month_group_id INTEGER REFERENCES inventory_month_groups(id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_items_month_group_id ON purchase_items(month_group_id)"))
+            conn.execute(text("ALTER TABLE IF EXISTS purchases ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(100)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchases_invoice_id ON purchases(invoice_id)"))
+            conn.execute(
+                text(
+                    "INSERT INTO inventory_month_groups (period) "
+                    "SELECT DISTINCT date_trunc('month', COALESCE(p.purchased_at, p.received_at, p.created_at))::date "
+                    "FROM purchase_items pi JOIN purchases p ON p.id = pi.purchase_id "
+                    "WHERE COALESCE(p.purchased_at, p.received_at, p.created_at) IS NOT NULL "
+                    "ON CONFLICT (period) DO NOTHING"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE purchase_items pi SET month_group_id = g.id "
+                    "FROM purchases p JOIN inventory_month_groups g "
+                    "ON g.period = date_trunc('month', COALESCE(p.purchased_at, p.received_at, p.created_at))::date "
+                    "WHERE pi.purchase_id = p.id AND pi.month_group_id IS DISTINCT FROM g.id"
+                )
+            )
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ADD COLUMN IF NOT EXISTS cost NUMERIC(14, 4)"))
             from .inventory_costs import backfill_presentation_costs
             backfill_presentation_costs(conn)
