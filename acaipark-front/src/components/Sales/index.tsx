@@ -235,6 +235,9 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
   const loadSalesData = useCallback(async () => {
     setLoading(true);
     setErrorMessage(null);
+    setSales([]);
+    setSalesByProduct([]);
+    setSalesAdjustmentsByMonth([]);
     try {
       const [
         salesResponse,
@@ -289,6 +292,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
       const message =
         error instanceof Error ? error.message : "No se pudo cargar ventas";
       setErrorMessage(message);
+      setSales([]);
       setSalesByProduct([]);
       setSalesAdjustmentsByMonth([]);
     } finally {
