@@ -40,7 +40,7 @@ const products: Option[] = [
   { id: "vaso", name: "Vaso", description: "Elige el tamaño que prefieras.", price: 0, image: "🥤", menuItemName: "Açaí personalizado" },
   { id: "bowl", name: "Bowl", description: "Una porción generosa.", price: 29900, image: "🍨", menuItemName: "Bowl personalizado" },
   { id: "cono", name: "Cono", description: "Crocante y práctico.", price: 9900, image: "🍦", menuItemName: "Cono personalizado" },
-  { id: "cafe", name: "Café", description: "Café listo para servir.", price: 0, image: "☕", menuItemName: "Café" },
+  { id: "cafe", name: "Café Americano", description: "Café listo para servir.", price: 5000, image: "☕", menuItemName: "Café Americano" },
   { id: "fresas", name: "Fresas", description: "Fresas listas para servir.", price: 17900, image: "🍓", menuItemName: "Fresas" },
   { id: "agua", name: "Botella de agua", description: "Agua lista para servir.", price: 5000, image: "🧴", menuItemName: "BOTELLA DE AGUA" },
   { id: "topping", name: "Topping", description: "Adicional listo para servir.", price: 2000, image: "🍓", menuItemName: "Topping" },
@@ -48,9 +48,9 @@ const products: Option[] = [
 ];
 
 const cupSizes: Option[] = [
-  { id: "8oz", name: "Vaso 8 oz", description: "Pequeño", price: 16900, image: "🥤", menuItemName: "Açaí personalizado" },
-  { id: "12oz", name: "Vaso 12 oz", description: "Mediano", price: 21900, image: "🥤", menuItemName: "Açaí personalizado" },
-  { id: "16oz", name: "Vaso 16 oz", description: "Grande", price: 26900, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "8oz", name: "Vaso 8 oz", description: "Pequeño", price: 16000, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "12oz", name: "Vaso 12 oz", description: "Mediano", price: 21000, image: "🥤", menuItemName: "Açaí personalizado" },
+  { id: "16oz", name: "Vaso 16 oz", description: "Grande", price: 26000, image: "🥤", menuItemName: "Açaí personalizado" },
 ];
 
 const baseOptions = [
@@ -68,7 +68,7 @@ function normalizeName(value: string) {
 }
 
 function withMenuPrice(option: Option, menuItems: MenuItem[]): Option {
-  if (option.id === "topping") return option;
+  if (option.id === "topping" || option.id.endsWith("oz")) return option;
 
   const menuItem = menuItems.find(
     (item) =>
