@@ -103,7 +103,9 @@ type LoyaltyRegistration = {
 type PaymentMethod = "cash" | "dataphone" | "transfer";
 
 type PosOrderItemCreate = {
-  menu_item_id: number;
+  menu_item_id: number | null;
+  name?: string | null;
+  category?: string | null;
   quantity: number;
   unit_price: number;
   tax_rate: number | null;
@@ -135,7 +137,7 @@ type PosOrderOut = {
   closed_at?: string | null;
   items: Array<{
     id: number;
-    menu_item_id: number;
+    menu_item_id: number | null;
     name: string;
     category: string;
     zone: string;
@@ -1052,25 +1054,21 @@ export default function PosScreen() {
         name.includes("acai") || name.includes("açaí") || name.includes("bowl")
       );
     });
-
-    if (!baseItem) {
-      setSubmitStatus({
-        kind: "error",
-        message: "No se pudo preparar el producto configurado.",
-      });
-      return;
-    }
+    const productName = baseItem?.name ?? configuredOrder.menuItemName ?? configuredOrder.name;
+    const category = baseItem?.category ?? "Toma de pedidos";
 
     setCart((prev) => {
       const draft = { ...prev };
       const editingItem = guidedEditDraft ? draft[guidedEditDraft.cartItemId] : undefined;
       if (guidedEditDraft) delete draft[guidedEditDraft.cartItemId];
-      const cartItemId = guidedEditDraft?.cartItemId ?? `${baseItem.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const cartItemId = guidedEditDraft?.cartItemId ?? `${baseItem?.id ?? "configurado"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return {
         ...draft,
         [cartItemId]: {
           cartItemId,
-          menu_item_id: baseItem.id,
+          menu_item_id: baseItem?.id ?? null,
+          name: productName,
+          category,
           quantity: editingItem?.quantity ?? 1,
           unit_price: configuredOrder.price,
           tax_rate: 0,
@@ -1143,6 +1141,8 @@ export default function PosScreen() {
             const discount_amount = lineBase * (ci.discount_rate ?? 0);
             return {
               menu_item_id: ci.menu_item_id,
+              name: ci.name ?? null,
+              category: ci.category ?? null,
               quantity: ci.quantity,
               unit_price: ci.unit_price,
               tax_rate: ci.tax_rate ?? 0,
@@ -1497,6 +1497,15 @@ export default function PosScreen() {
                       </TableCell>
                       <TableCell className="xl:pr-7.5">
                         <div className="flex items-center justify-end gap-x-3.5">
+                          {order.status !== "void" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleMarkOrderVoided(order.id)}
+                              className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red transition hover:bg-red/10"
+                            >
+                              Anular
+                            </button>
+                          ) : null}
                           <Tooltip label="Ver PDF">
                             <button
                               type="button"
@@ -1911,7 +1920,7 @@ export default function PosScreen() {
                       className="rounded-xl border border-stroke bg-gray-1 p-3 text-sm text-dark transition dark:border-dark-3 dark:bg-dark-2 dark:text-white"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold">Producto personalizado</div>
+                        <div className="font-semibold">{ci.name ?? "Producto personalizado"}</div>
                         <div className="text-primary">
                           {formatMoney(ci.unit_price)}
                         </div>
@@ -2010,8 +2019,8 @@ export default function PosScreen() {
                             const menuItem = menuItems.find((item) => item.id === ci.menu_item_id);
                             setGuidedEditDraft({
                               cartItemId: ci.cartItemId,
-                              name: menuItem?.name ?? "Producto personalizado",
-                              menuItemName: menuItem?.name ?? "Açaí personalizado",
+                              name: menuItem?.name ?? ci.name ?? "Producto personalizado",
+                              menuItemName: menuItem?.name ?? ci.name ?? "Açaí personalizado",
                               price: ci.unit_price,
                               note: ci.note ?? "",
                             });

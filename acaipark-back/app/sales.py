@@ -69,7 +69,7 @@ def _daily_payment_summary(day: date, db_session: Session) -> dict[str, Decimal]
             models.Sale.payment_method,
             func.coalesce(func.sum(models.Sale.total), 0).label("total"),
         )
-        .filter(models.Sale.created_at >= start, models.Sale.created_at < end)
+        .filter(models.Sale.created_at >= start, models.Sale.created_at < end, models.Sale.status == "active")
         .group_by(models.Sale.payment_method)
         .all()
     )
@@ -112,6 +112,7 @@ def _automatic_cash_counts(day: date, db_session: Session) -> dict[str, int]:
             models.Sale.created_at >= start,
             models.Sale.created_at < end,
             models.Sale.payment_method == "cash",
+            models.Sale.status == "active",
         )
         .all()
     )
@@ -364,6 +365,8 @@ def sales_by_product(
         db_session.query(models.PosOrderItem)
         .join(models.Sale, models.Sale.order_id == models.PosOrderItem.order_id)
     )
+    query = query.filter(models.Sale.status == "active")
+    notes_query = notes_query.filter(models.Sale.status == "active")
     if bool(from_date) != bool(to_date):
         raise HTTPException(status_code=400, detail="Debes indicar Desde y Hasta")
     if from_date and to_date:
@@ -438,6 +441,7 @@ def sales_by_table(period: str | None = None, db_session: Session = Depends(db.g
         .group_by(models.PosOrder.table_id, models.PosTable.name, models.PosTable.is_active)
         .order_by(func.sum(models.Sale.total).desc())
     )
+    query = query.filter(models.Sale.status == "active")
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
     if not period or re.fullmatch(r"\d{4}-\d{2}", period):
@@ -492,6 +496,7 @@ def sales_adjustments_by_month(
             base_query
             .filter(models.Sale.created_at >= selected_start)
             .filter(models.Sale.created_at < selected_end)
+            .filter(models.Sale.status == "active")
             .one()
         )
         return [
@@ -515,6 +520,7 @@ def sales_adjustments_by_month(
         .group_by(year_expr, month_expr)
         .order_by(year_expr.desc(), month_expr.desc())
     )
+    query = query.filter(models.Sale.status == "active")
     if start_date is not None:
         query = query.filter(models.Sale.created_at >= start_date)
     if end_date is not None:

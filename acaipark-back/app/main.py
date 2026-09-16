@@ -79,6 +79,9 @@ def _auto_migrate_schema() -> None:
             conn.execute(
                 text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS cash_denomination_counts JSON NOT NULL DEFAULT '{}'")
             )
+            conn.execute(
+                text("ALTER TABLE IF EXISTS sales ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'")
+            )
             conn.execute(text("ALTER TABLE IF EXISTS pos_orders DROP COLUMN IF EXISTS waiter_id"))
             conn.execute(text("ALTER TABLE IF EXISTS sales DROP COLUMN IF EXISTS waiter_id"))
             conn.execute(text("DROP TABLE IF EXISTS waiters"))
@@ -159,15 +162,18 @@ def _auto_migrate_schema() -> None:
                     "ON pos_orders (created_by_user_id)"
                 )
             )
+            conn.execute(text("ALTER TABLE IF EXISTS pos_order_items ALTER COLUMN menu_item_id DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE IF EXISTS sale_items ALTER COLUMN menu_item_id DROP NOT NULL"))
     except Exception as exc:
         logger.warning("Auto-migration skipped/failed: %s", exc)
 
 
 def _ensure_guided_addons() -> None:
-    """Create the menu items required by the guided POS flow.
+    """Create the menu items used by the guided POS flow.
 
-    Guided orders must always reference an actual menu item so they can be
-    persisted as a POS order item. Older databases predate these add-ons.
+    Guided orders no longer require an existing menu item: order items can be
+    persisted with the product data sent by the frontend. These add-ons keep
+    classic guided products linked to real menu items when available.
     """
     db_session = db.SessionLocal()
     try:

@@ -325,7 +325,7 @@ class PosOrderItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("pos_orders.id"), nullable=False, index=True)
-    menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=False, index=True)
+    menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
     category = Column(String, nullable=False)
     zone = Column(String, nullable=False)  # kitchen|bar
@@ -386,6 +386,7 @@ class Sale(Base):
     payment_method = Column(String(30), nullable=True)
     cash_received = Column(Numeric(14, 2), nullable=True)
     cash_denomination_counts = Column(JSON, nullable=False, default=dict)
+    status = Column(String(20), nullable=False, default="active")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     order = relationship("PosOrder", back_populates="sale")
@@ -537,7 +538,7 @@ class SaleItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sale_id = Column(Integer, ForeignKey("sales.id", ondelete="CASCADE"), index=True, nullable=False)
-    menu_item_id = Column(Integer, ForeignKey("menu_items.id"), index=True, nullable=False)
+    menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
     category = Column(String, nullable=False)
     quantity = Column(Numeric(14, 2), nullable=False, default=0)

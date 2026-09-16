@@ -259,6 +259,7 @@ class ManualExpensePaymentOut(BaseModel):
     category: str
     payment_date: date
     amount: Decimal
+    status: str = "manual"
     paid_at: datetime | None = None
 
 
@@ -385,7 +386,9 @@ class PosTableOut(BaseModel):
 
 
 class PosOrderItemCreate(BaseModel):
-    menu_item_id: int
+    menu_item_id: int | None = None
+    name: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=100)
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     tax_rate: Decimal = Field(ge=0, le=Decimal("1"))
@@ -402,7 +405,7 @@ class PosOrderCreate(BaseModel):
 
 class PosOrderItemOut(BaseModel):
     id: int
-    menu_item_id: int
+    menu_item_id: int | None
     name: str
     category: str
     zone: str
@@ -464,7 +467,7 @@ class PosOrderClose(BaseModel):
 
 class SaleItemOut(BaseModel):
     id: int
-    menu_item_id: int
+    menu_item_id: int | None
     name: str
     category: str
     quantity: Decimal
@@ -495,6 +498,7 @@ class SaleOut(BaseModel):
     payment_method: PaymentMethod | None = None
     cash_received: Decimal | None = None
     cash_denomination_counts: dict[str, int] = Field(default_factory=dict)
+    status: str = "active"
     created_at: datetime
     electronic_invoice_status: str | None = None
     electronic_invoice_number: str | None = None

@@ -11,6 +11,7 @@ type Sale = {
   total: number | string;
   courtesy_total: number | string;
   payment_method?: string | null;
+  status?: string;
   created_at: string;
 };
 
@@ -21,7 +22,7 @@ type Purchase = {
   received_at?: string | null;
 };
 
-type ExpensePayment = { amount: number | string; payment_date: string };
+type ExpensePayment = { amount: number | string; payment_date: string; status?: string };
 
 type SalesByProduct = {
   menu_item_id: number;
@@ -141,11 +142,16 @@ export default function ControlPanel({ range }: { range: DateRange }) {
     };
   }, [range]);
 
-  const totalSales = sales.reduce((sum, sale) => sum + safeNumber(sale.total), 0);
-  const totalCourtesy = sales.reduce((sum, sale) => sum + safeNumber(sale.courtesy_total), 0);
+  const totalSales = sales
+    .filter((sale) => sale.status !== "void")
+    .reduce((sum, sale) => sum + safeNumber(sale.total), 0);
+  const totalCourtesy = sales
+    .filter((sale) => sale.status !== "void")
+    .reduce((sum, sale) => sum + safeNumber(sale.courtesy_total), 0);
   const totalPurchases = purchases.reduce((sum, purchase) => sum + safeNumber(purchase.total_cost), 0);
-  const totalExpenses = expenses.reduce((sum, expense) => sum + safeNumber(expense.amount), 0);
-  const monthlyPayments = sales.reduce((totals, sale) => {
+  const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.status === "void" ? 0 : safeNumber(expense.amount)), 0);
+  const activeSales = sales.filter((sale) => sale.status !== "void");
+  const monthlyPayments = activeSales.reduce((totals, sale) => {
     const method = sale.payment_method || "cash";
     if (method === "cash") totals.cash_total += safeNumber(sale.total);
     if (method === "transfer") totals.transfer_total += safeNumber(sale.total);
@@ -223,7 +229,7 @@ export default function ControlPanel({ range }: { range: DateRange }) {
               <TableBody>
                 {topProductsRows.map((row) => (
                   <TableRow
-                    key={row.menu_item_id}
+                    key={`${row.menu_item_id}-${row.name}-${row.category}`}
                     className="transition-colors hover:bg-primary/5"
                   >
                     <TableCell className="font-medium text-black dark:text-white">

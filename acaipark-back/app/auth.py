@@ -80,6 +80,27 @@ def get_current_user(
         )
     return _ensure_profile_defaults(db_user, db_session)
 
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db_session: Session = Depends(db.get_db),
+) -> models.User | None:
+    if not credentials or not credentials.credentials:
+        return None
+
+    payload = security.decode_access_token(credentials.credentials)
+    if not payload:
+        return None
+
+    email = payload.get("sub")
+    if not isinstance(email, str) or not email.strip():
+        return None
+
+    db_user = db_session.query(models.User).filter(models.User.email == email.strip()).first()
+    if not db_user or not db_user.is_active:
+        return None
+    return _ensure_profile_defaults(db_user, db_session)
+
 @router.post("/signup", status_code=status.HTTP_403_FORBIDDEN)
 def signup():
     raise HTTPException(

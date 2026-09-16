@@ -40,6 +40,7 @@ def _payment_out(payment: models.FixedExpensePayment) -> dict:
         "category": payment.fixed_expense.category,
         "payment_date": payment.due_date,
         "amount": payment.amount,
+        "status": payment.status,
         "concept": payment.concept,
         "paid_at": payment.paid_at,
     }
@@ -68,7 +69,7 @@ def list_manual_expense_payments(
         db_session.query(models.FixedExpensePayment)
         .options(joinedload(models.FixedExpensePayment.fixed_expense))
         .filter(
-            models.FixedExpensePayment.status == "manual",
+            models.FixedExpensePayment.status.in_(["manual", "void"]),
         )
     )
     if from_date or to_date:
@@ -145,6 +146,31 @@ def register_manual_expense_payment(
         status="manual",
         paid_at=datetime.now(timezone.utc),
     )
+    db_session.add(payment)
+    db_session.commit()
+    db_session.refresh(payment)
+    return _payment_out(payment)
+
+
+@router.post("/payments/{payment_id}/void", response_model=schemas.ManualExpensePaymentOut)
+def void_manual_expense_payment(
+    payment_id: int,
+    db_session: Session = Depends(db.get_db),
+):
+    payment = (
+        db_session.query(models.FixedExpensePayment)
+        .filter(models.FixedExpensePayment.id == payment_id)
+        .first()
+    )
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pago no encontrado")
+    if payment.status != "manual":
+        raise HTTPException(
+            status_code=409,
+            detail="Solo se pueden anular gastos registrados manualmente.",
+        )
+
+    payment.status = "void"
     db_session.add(payment)
     db_session.commit()
     db_session.refresh(payment)

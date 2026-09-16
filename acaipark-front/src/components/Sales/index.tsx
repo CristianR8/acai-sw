@@ -48,6 +48,7 @@ type Sale = {
   total: number | string;
   payment_method?: "cash" | "card" | "dataphone" | "transfer" | null;
   cash_received?: number | string | null;
+  status?: string;
   created_at: string;
   items: SaleItem[];
 };
@@ -126,6 +127,13 @@ function formatDate(value: string) {
   const parsed = withOffset ? dayjs(value) : dayjs.tz(value, COLOMBIA_TZ);
   if (!parsed.isValid()) return value;
   return parsed.tz(COLOMBIA_TZ).format("DD/MM/YYYY HH:mm");
+}
+
+function saleStatusMeta(status: string | undefined) {
+  if (status === "void") {
+    return { label: "Anulado", className: "bg-red/10 text-red" };
+  }
+  return { label: "Pagada", className: "bg-primary/10 text-primary" };
 }
 
 function formatMonthLabel(year: unknown, month: unknown) {
@@ -306,18 +314,24 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
     loadSalesData();
   }, [loadSalesData]);
 
-  const totalSalesValue = useMemo(
-    () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
+  const activeSales = useMemo(
+    () => sales.filter((sale) => sale.status !== "void"),
     [sales],
   );
-  const totalSalesCount = sales.length;
+  const totalSalesValue = useMemo(
+    () => activeSales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
+    [activeSales],
+  );
+  const totalSalesCount = activeSales.length;
   const totalCourtesyApplied = useMemo(
-    () => sales.reduce((acc, sale) => acc + safeNumber(sale.courtesy_count), 0),
-    [sales],
+    () =>
+      activeSales.reduce((acc, sale) => acc + safeNumber(sale.courtesy_count), 0),
+    [activeSales],
   );
   const totalDiscountApplied = useMemo(
-    () => sales.reduce((acc, sale) => acc + safeNumber(sale.discount_count), 0),
-    [sales],
+    () =>
+      activeSales.reduce((acc, sale) => acc + safeNumber(sale.discount_count), 0),
+    [activeSales],
   );
   const salesHistoryTotalPages = Math.max(
     1,
@@ -441,6 +455,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
                 <TableHead>Realizado por</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Medio de pago</TableHead>
+                <TableHead>Estado</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Cortesías</TableHead>
                 <TableHead>Descuentos</TableHead>
@@ -479,6 +494,13 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
                     </TableCell>
                     <TableCell>{formatDate(sale.created_at)}</TableCell>
                     <TableCell>{paymentMethodLabel(sale.payment_method)}</TableCell>
+                    <TableCell>
+                      <div
+                        className={`max-w-fit rounded-full px-3.5 py-1 text-sm font-medium ${saleStatusMeta(sale.status).className}`}
+                      >
+                        {saleStatusMeta(sale.status).label}
+                      </div>
+                    </TableCell>
                     <TableCell>{formatQty(itemsCount)}</TableCell>
                     <TableCell>{formatCount(sale.courtesy_count)}</TableCell>
                     <TableCell>{formatCount(sale.discount_count)}</TableCell>

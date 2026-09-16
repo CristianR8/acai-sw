@@ -14,9 +14,9 @@ dayjs.extend(timezone);
 
 const COLOMBIA_TZ = "America/Bogota";
 
-type Sale = { total: number | string; created_at: string };
+type Sale = { total: number | string; created_at: string; status?: string };
 type Purchase = { total_cost: number | string; created_at: string; purchased_at?: string | null; received_at?: string | null };
-type ExpensePayment = { amount: number | string; payment_date: string };
+type ExpensePayment = { amount: number | string; payment_date: string; status?: string };
 type ChartPoint = { x: string; y: number };
 
 function safeNumber(value: unknown) {
@@ -101,9 +101,9 @@ export default function DashboardCharts({ range }: { range: DateRange }) {
 
   const rangeStart = dayjs.tz(range.from, COLOMBIA_TZ).startOf("day");
   const rangeEnd = dayjs.tz(range.to, COLOMBIA_TZ).startOf("day");
-  const salesSeries = buildSeries(sales, rangeStart, rangeEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total));
+  const salesSeries = buildSeries(sales.filter((sale) => sale.status !== "void"), rangeStart, rangeEnd, (sale) => parseDate(sale.created_at), (sale) => safeNumber(sale.total));
   const purchasesSeries = buildSeries(purchases, rangeStart, rangeEnd, purchaseDate, (purchase) => safeNumber(purchase.total_cost));
-  const expensesSeries = buildSeries(expenses, rangeStart, rangeEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount));
+  const expensesSeries = buildSeries(expenses.filter((expense) => expense.status !== "void"), rangeStart, rangeEnd, (expense) => parseDate(expense.payment_date), (expense) => safeNumber(expense.amount));
   const totalExpensesSeries = purchasesSeries.map((point, index) => ({ x: point.x, y: point.y + (expensesSeries[index]?.y ?? 0) }));
 
   return <>

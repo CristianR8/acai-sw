@@ -49,15 +49,37 @@ def _table_or_404(db_session: Session, table_id: int) -> models.PosTable:
     return table
 
 
-def _menu_item_or_404(db_session: Session, menu_item_id: int) -> models.MenuItem:
+def _find_active_menu_item(db_session: Session, menu_item_id: int) -> models.MenuItem | None:
     item = (
         db_session.query(models.MenuItem)
         .filter(models.MenuItem.id == menu_item_id, models.MenuItem.is_active == True)  # noqa: E712
         .first()
     )
     if not item:
-        raise HTTPException(status_code=404, detail=f"Menu item {menu_item_id} no encontrado")
+        return None
     return item
+
+
+def _resolve_order_item_details(
+    db_session: Session,
+    item_payload: schemas.PosOrderItemCreate,
+):
+    """Resuelve los datos de un item de comanda.
+
+    La toma de pedidos no depende del inventario/menú: si el menu item no
+    existe (o no se envió), se persiste el item con los datos del frontend y
+    sin referencia a un menu item de la base de datos.
+    """
+    menu_item_id: int | None = None
+    name = (item_payload.name or "Producto personalizado").strip()
+    category = (item_payload.category or "Toma de pedidos").strip()
+    if item_payload.menu_item_id is not None:
+        menu_item = _find_active_menu_item(db_session, item_payload.menu_item_id)
+        if menu_item is not None:
+            menu_item_id = menu_item.id
+            name = menu_item.name
+            category = menu_item.category
+    return menu_item_id, name, category
 
 
 def _compute_order_totals(items: list[models.PosOrderItem], service_total: Decimal):
@@ -459,7 +481,11 @@ def _create_sale_from_order(
     for payload in sale_items_payload:
         sale_item = models.SaleItem(
             sale_id=sale.id,
-            menu_item_id=int(payload["menu_item_id"]),
+            menu_item_id=(
+                int(payload["menu_item_id"])
+                if payload["menu_item_id"] is not None
+                else None
+            ),
             name=str(payload["name"]),
             category=str(payload["category"]),
             quantity=Decimal(payload["quantity"]),
@@ -567,7 +593,11 @@ def delete_table(table_id: int, db_session: Session = Depends(db.get_db)):
 
 
 @router.post("/orders", response_model=schemas.PosOrderOut, status_code=201)
-def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(db.get_db)):
+def create_order(
+    payload: schemas.PosOrderCreate,
+    db_session: Session = Depends(db.get_db),
+    current_user: models.User | None = Depends(auth.get_current_user_optional),
+):
     table = _table_or_404(db_session, payload.table_id)
 
     next_display_number = (
@@ -580,6 +610,8 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
         status="open",
         service_total=payload.service_total,
     )
+    if current_user is not None:
+        order.created_by_user_id = current_user.id
     db_session.add(order)
     db_session.flush()
 
@@ -587,8 +619,14 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
     now = datetime.now(timezone.utc)
 
     for item_payload in payload.items:
-        menu_item = _menu_item_or_404(db_session, item_payload.menu_item_id)
-        zone = "bar" if _norm(menu_item.category) in BAR_CATEGORY_KEYS else "kitchen"
+        menu_item_id, menu_item_name, menu_item_category = _resolve_order_item_details(
+            db_session, item_payload
+        )
+        zone = (
+            "bar"
+            if _norm(menu_item_category) in BAR_CATEGORY_KEYS
+            else "kitchen"
+        )
 
         qty = Decimal(item_payload.quantity)
         unit_price = Decimal(item_payload.unit_price)
@@ -612,9 +650,9 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
 
         pos_item = models.PosOrderItem(
             order_id=order.id,
-            menu_item_id=menu_item.id,
-            name=menu_item.name,
-            category=menu_item.category,
+            menu_item_id=menu_item_id,
+            name=menu_item_name,
+            category=menu_item_category,
             zone=zone,
             quantity=qty,
             unit_price=unit_price,
@@ -814,6 +852,10 @@ def mark_order_void(order_id: int, db_session: Session = Depends(db.get_db)):
     now = datetime.now(timezone.utc)
     order.status = "void"
     order.closed_at = now
+
+    if order.sale is not None:
+        order.sale.status = "void"
+        db_session.add(order.sale)
 
     db_session.add(order)
     db_session.commit()
