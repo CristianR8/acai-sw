@@ -718,8 +718,6 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
         .order_by(models.FixedExpense.name.asc(), models.FixedExpensePayment.id.asc())
         .all()
     )
-    output = BytesIO()
-    pdf = canvas.Canvas(output, pagesize=A4)
     page_w, page_h = A4
     left, right = 42, page_w - 42
     content_w = right - left
@@ -738,130 +736,139 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
     soft_gray = colors.HexColor("#c8d6e4")
     white = colors.white
 
-    y = page_h - 46
+    y = page_h - 40
 
-    def ensure_space(needed: int) -> None:
+    def _render(pdf_obj) -> None:
         nonlocal y
-        if y < needed:
-            pdf.showPage()
-            y = page_h - 46
+        y = page_h - 40
 
-    def section(title: str, color) -> None:
-        nonlocal y
-        ensure_space(100)
-        pdf.setFillColor(color)
-        pdf.rect(left, y - 20, content_w, 20, stroke=0, fill=1)
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.setFillColor(white)
-        pdf.drawString(left + 8, y - 14, title)
-        y -= 32
+        def section(title: str, color) -> None:
+            nonlocal y
+            pdf_obj.setFillColor(color)
+            pdf_obj.rect(left, y - 17, content_w, 17, stroke=0, fill=1)
+            pdf_obj.setFont("Helvetica-Bold", 8)
+            pdf_obj.setFillColor(white)
+            pdf_obj.drawString(left + 6, y - 12, title)
+            y -= 24
 
-    def text(content, bold: bool = False, size: int = 9, color=None, indent: int = 0, gap: int = 16) -> None:
-        nonlocal y
-        ensure_space(50)
-        font = "Helvetica-Bold" if bold else "Helvetica"
-        pdf.setFont(font, size)
-        pdf.setFillColor(color or text_dark)
-        for chunk in simpleSplit(str(content), font, size, content_w - indent) or [""]:
-            pdf.drawString(left + indent, y, chunk)
-            y -= gap
+        def text(content, bold: bool = False, size: int = 7.5, color=None, indent: int = 0, gap: int = 11) -> None:
+            nonlocal y
+            font = "Helvetica-Bold" if bold else "Helvetica"
+            pdf_obj.setFont(font, size)
+            pdf_obj.setFillColor(color or text_dark)
+            for chunk in simpleSplit(str(content), font, size, content_w - indent) or [""]:
+                pdf_obj.drawString(left + indent, y, chunk)
+                y -= gap
 
-    def row(label: str, value: str, bg, fg, size: int = 11, label_size: int = 10) -> None:
-        nonlocal y
-        ensure_space(70)
-        pdf.setFillColor(text_dark)
-        pdf.setFont("Helvetica-Bold", label_size)
-        pdf.drawString(left + 6, y, label)
-        pdf.setFont("Helvetica-Bold", size)
-        tw = pdf.stringWidth(value, "Helvetica-Bold", size)
-        box_w = tw + 20
-        box_h = size + 10
-        box_x = right - box_w - 6
-        pdf.setFillColor(bg)
-        pdf.rect(box_x, y - box_h + 6, box_w, box_h, stroke=0, fill=1)
-        pdf.setFillColor(fg)
-        pdf.drawString(box_x + 10, y - box_h + 12, value)
-        y -= box_h + 10
+        def row(label: str, value: str, bg, fg, size: int = 10, label_size: int = 8) -> None:
+            nonlocal y
+            pdf_obj.setFillColor(text_dark)
+            pdf_obj.setFont("Helvetica-Bold", label_size)
+            pdf_obj.drawString(left + 4, y, label)
+            pdf_obj.setFont("Helvetica-Bold", size)
+            tw = pdf_obj.stringWidth(value, "Helvetica-Bold", size)
+            box_w = tw + 14
+            box_h = size + 7
+            box_x = right - box_w - 4
+            pdf_obj.setFillColor(bg)
+            pdf_obj.rect(box_x, y - box_h + 5, box_w, box_h, stroke=0, fill=1)
+            pdf_obj.setFillColor(fg)
+            pdf_obj.drawString(box_x + 7, y - box_h + 9, value)
+            y -= box_h + 6
 
-    # ---- Encabezado ----
-    pdf.setFillColor(dark_blue)
-    pdf.rect(left, y - 26, content_w, 26, stroke=0, fill=1)
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.setFillColor(white)
-    pdf.drawString(left + 10, y - 18, "CIERRE DE CAJA")
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.setFillColor(soft_gray)
-    pdf.drawRightString(right - 10, y - 18, f"CIERRE DEL DÍA: {day.strftime('%d/%m/%Y')}")
-    y -= 44
+        # ---- Encabezado ----
+        pdf_obj.setFillColor(dark_blue)
+        pdf_obj.rect(left, y - 22, content_w, 22, stroke=0, fill=1)
+        pdf_obj.setFont("Helvetica-Bold", 14)
+        pdf_obj.setFillColor(white)
+        pdf_obj.drawString(left + 8, y - 16, "CIERRE DE CAJA")
+        pdf_obj.setFont("Helvetica-Bold", 9)
+        pdf_obj.setFillColor(soft_gray)
+        pdf_obj.drawRightString(right - 8, y - 16, f"CIERRE DEL DÍA: {day.strftime('%d/%m/%Y')}")
+        y -= 34
 
-    # ---- Fecha y base inicial (base inicial justo debajo de la fecha) ----
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.setFillColor(text_dark)
-    pdf.drawString(left, y, f"Día: {day.strftime('%d/%m/%Y')}")
-    y -= 26
-    pdf.setFillColor(light_amber)
-    pdf.rect(left, y - 20, content_w, 20, stroke=0, fill=1)
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.setFillColor(amber)
-    pdf.drawString(left + 8, y - 14, "Base inicial  (apertura de caja):")
-    pdf.drawRightString(right - 8, y - 14, f"$ {closing.opening_total:,.0f}")
-    y -= 32
+        # ---- Fecha y base inicial ----
+        pdf_obj.setFont("Helvetica-Bold", 9)
+        pdf_obj.setFillColor(text_dark)
+        pdf_obj.drawString(left, y, f"Día: {day.strftime('%d/%m/%Y')}")
+        y -= 18
+        pdf_obj.setFillColor(light_amber)
+        pdf_obj.rect(left, y - 16, content_w, 16, stroke=0, fill=1)
+        pdf_obj.setFont("Helvetica-Bold", 9)
+        pdf_obj.setFillColor(amber)
+        pdf_obj.drawString(left + 6, y - 11, "Base inicial  (apertura de caja):")
+        pdf_obj.drawRightString(right - 6, y - 11, f"$ {closing.opening_total:,.0f}")
+        y -= 24
 
-    # ---- Efectivo recibido: billetes y monedas ----
-    section("EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", green)
-    for denomination in CASH_DENOMINATIONS:
-        quantity = closing.denomination_counts[str(denomination)]
-        text(f"$ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}")
-    text("MONEDAS", bold=True, color=muted, gap=14)
-    for denomination in COIN_DENOMINATIONS:
-        quantity = closing.denomination_counts[str(denomination)]
-        text(f"   $ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}", indent=8)
-    text(f"Total monedas:  $ {closing.denomination_counts['coins']:,.0f}", bold=True, color=muted, gap=22)
-    row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", green, white, size=13)
+        # ---- Efectivo recibido: billetes y monedas ----
+        section("EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", green)
+        for denomination in CASH_DENOMINATIONS:
+            quantity = closing.denomination_counts[str(denomination)]
+            text(f"$ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}", gap=10)
+        text("MONEDAS", bold=True, color=muted, gap=10)
+        for denomination in COIN_DENOMINATIONS:
+            quantity = closing.denomination_counts[str(denomination)]
+            text(f"   $ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}", indent=8, gap=10)
+        text(f"Total monedas:  $ {closing.denomination_counts['coins']:,.0f}", bold=True, color=muted, gap=12)
+        row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", green, white, size=10)
 
-    # ---- Resumen de ventas ----
-    section("RESUMEN DE VENTAS Y MEDIOS DE PAGO", dark_blue)
-    text("Efectivo (ventas del día, base del esperado):", bold=True)
-    row("Ventas en efectivo", f"$ {closing.cash_total:,.0f}", light_blue, dark_blue, size=12)
-    text(f"Datáfono:  $ {closing.dataphone_total:,.0f}")
-    text(f"Transferencias:  $ {closing.transfer_total:,.0f}")
-    row("Total ventas registradas", f"$ {closing.total:,.0f}", dark_blue, white, size=12)
+        # ---- Resumen de ventas ----
+        section("RESUMEN DE VENTAS Y MEDIOS DE PAGO", dark_blue)
+        text("Efectivo (ventas del día, base del esperado):", bold=True, gap=10)
+        row("Ventas en efectivo", f"$ {closing.cash_total:,.0f}", light_blue, dark_blue, size=10)
+        text(f"Datáfono:  $ {closing.dataphone_total:,.0f}", gap=10)
+        text(f"Transferencias:  $ {closing.transfer_total:,.0f}", gap=10)
+        row("Total ventas registradas", f"$ {closing.total:,.0f}", dark_blue, white, size=10)
 
-    # ---- Gastos y salidas de caja ----
-    section("GASTOS Y SALIDAS DE CAJA", amber)
-    if daily_expenses:
-        for index, expense in enumerate(daily_expenses, 1):
-            concept = expense.concept or expense.fixed_expense.category or "Sin concepto"
-            text(f"{index}. {expense.fixed_expense.name}", bold=True, gap=14)
-            text(f"      Concepto / Ref: {concept}      Monto: $ {Decimal(expense.amount):,.0f}", gap=14)
-    else:
-        text("Sin gastos registrados")
-    row("TOTAL GASTOS CAJA", f"$ {closing.expenses_total:,.0f}", light_red, red, size=12)
+        # ---- Gastos y salidas de caja ----
+        section("GASTOS Y SALIDAS DE CAJA", amber)
+        if daily_expenses:
+            for index, expense in enumerate(daily_expenses, 1):
+                concept = expense.concept or expense.fixed_expense.category or "Sin concepto"
+                text(f"{index}. {expense.fixed_expense.name}", bold=True, gap=10)
+                text(f"      Concepto / Ref: {concept}      Monto: $ {Decimal(expense.amount):,.0f}", gap=10)
+        else:
+            text("Sin gastos registrados")
+        row("TOTAL GASTOS CAJA", f"$ {closing.expenses_total:,.0f}", light_red, red, size=10)
 
-    # ---- Conciliación final ----
-    section("CONCILIACIÓN FINAL DE CAJA", dark_blue)
-    text("Efectivo esperado = Base inicial + Ventas en efectivo − Gastos del día", bold=True, size=8, color=muted, gap=14)
-    text(f"  $ {closing.opening_total:,.0f}  +  $ {closing.cash_total:,.0f}  −  $ {closing.expenses_total:,.0f}", size=9, indent=8, gap=24)
-    row("Efectivo esperado", f"$ {closing.expected_cash:,.0f}", light_blue, dark_blue, size=13)
-    row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", light_green, green, size=13)
-    sign = "-$ " if closing.difference < 0 else "$ "
-    row("Diferencia  (real − esperado)", f"{sign}{abs(closing.difference):,.0f}",
-        light_red if closing.difference < 0 else light_green,
-        red if closing.difference < 0 else green, size=13)
+        # ---- Conciliación final ----
+        section("CONCILIACIÓN FINAL DE CAJA", dark_blue)
+        text("Efectivo esperado = Base inicial + Ventas en efectivo − Gastos del día", bold=True, size=7, color=muted, gap=10)
+        text(f"  $ {closing.opening_total:,.0f}  +  $ {closing.cash_total:,.0f}  −  $ {closing.expenses_total:,.0f}", size=8, indent=8, gap=16)
+        row("Efectivo esperado", f"$ {closing.expected_cash:,.0f}", light_blue, dark_blue, size=11)
+        row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", light_green, green, size=11)
+        sign = "-$ " if closing.difference < 0 else "$ "
+        row("Diferencia  (real − esperado)", f"{sign}{abs(closing.difference):,.0f}",
+            light_red if closing.difference < 0 else light_green,
+            red if closing.difference < 0 else green, size=11)
 
-    # ---- Observaciones ----
-    section("OBSERVACIONES / NOVEDADES DEL TURNO", muted)
-    text("El efectivo esperado usa únicamente ventas pagadas en efectivo y gastos registrados del día.")
-    pdf.setStrokeColor(line_gray)
-    pdf.setLineWidth(0.8)
-    pdf.line(left, y, right, y)
-    y -= 26
-    pdf.setFont("Helvetica", 9)
-    pdf.setFillColor(text_dark)
-    pdf.drawString(left, y, "Firma Cajero(a)/Responsable:  ______________________________")
-    y -= 18
-    pdf.drawString(left, y, "Firma Administrador/Supervisor:  ____________________________")
+        # ---- Observaciones ----
+        section("OBSERVACIONES / NOVEDADES DEL TURNO", muted)
+        text("El efectivo esperado usa únicamente ventas pagadas en efectivo y gastos registrados del día.")
+        pdf_obj.setStrokeColor(line_gray)
+        pdf_obj.setLineWidth(0.8)
+        pdf_obj.line(left, y, right, y)
+        y -= 22
+        pdf_obj.setFont("Helvetica", 8)
+        pdf_obj.setFillColor(text_dark)
+        pdf_obj.drawString(left, y, "Firma Cajero(a)/Responsable:  ______________________________")
+        y -= 14
+        pdf_obj.drawString(left, y, "Firma Administrador/Supervisor:  ____________________________")
 
+    measure_out = BytesIO()
+    measure_pdf = canvas.Canvas(measure_out, pagesize=A4)
+    _render(measure_pdf)
+    content_height = (page_h - 40) - y
+    available_height = page_h - 60
+    scale = min(1.0, available_height / content_height) if content_height > 0 else 1.0
+
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=A4)
+    if scale < 1.0:
+        pdf.translate(0, page_h)
+        pdf.scale(scale, scale)
+        pdf.translate(0, -page_h)
+    _render(pdf)
     pdf.save()
     output.seek(0)
     return Response(content=output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="cierre-caja-{day.isoformat()}.pdf"'})
