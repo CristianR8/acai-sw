@@ -503,7 +503,7 @@ export default function PosScreen() {
   const canCompletePayment = paymentMethod !== "cash" || hasEnoughCash;
 
   const activeOrders = useMemo(
-    () => orders.filter((o) => !["closed", "void"].includes(o.status)),
+    () => orders.filter((o) => !["closed", "void", "edit_discarded"].includes(o.status)),
     [orders],
   );
   const finishedOrders = useMemo(
@@ -1355,10 +1355,10 @@ export default function PosScreen() {
                             <button
                               type="button"
                               onClick={() => handleMarkOrderVoided(order.id)}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-red/70 text-red hover:border-red hover:bg-red/10"
+                              className="flex h-9 items-center justify-center gap-2 rounded-lg border border-red/70 px-3 text-sm font-semibold text-red hover:border-red hover:bg-red/10"
                             >
-                              <span className="sr-only">Anular pedido</span>
                               <RiProhibited2Line />
+                              <span>Anular pedido</span>
                             </button>
                           </Tooltip>
                         ) : null}
@@ -1510,9 +1510,17 @@ export default function PosScreen() {
                               onClick={() => handleMarkOrderVoided(order.id)}
                               className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red transition hover:bg-red/10"
                             >
-                              Anular
+                              Anular pedido
                             </button>
-                          ) : null}
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="cursor-not-allowed rounded-md border border-red/20 bg-red/5 px-2.5 py-1 text-xs font-semibold text-red/60"
+                            >
+                              Pedido anulado
+                            </button>
+                          )}
                           <Tooltip label="Ver PDF">
                             <button
                               type="button"
