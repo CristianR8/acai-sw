@@ -402,7 +402,9 @@ class Sale(Base):
     @property
     def created_by_name(self) -> str | None:
         user = self.order.created_by_user if self.order else None
-        return user.full_name if user and user.full_name else None
+        # The account email is the login identifier.  Prefer the profile name,
+        # but always return a meaningful value for orders created by a session.
+        return (user.full_name or user.email) if user else None
 
     @property
     def created_by_email(self) -> str | None:
