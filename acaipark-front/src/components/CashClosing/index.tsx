@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const BILL_DENOMINATIONS = [100000, 50000, 20000, 10000, 5000, 2000, 1000];
+const BILL_DENOMINATIONS = [100000, 50000, 20000, 10000, 5000, 2000];
+const COIN_DENOMINATIONS = [1000, 500, 200, 100, 50];
 
 const money = (value: unknown) =>
   new Intl.NumberFormat("es-CO", {
@@ -45,11 +46,11 @@ export default function CashClosing() {
 
   const physical = useMemo(
     () =>
-      BILL_DENOMINATIONS.reduce(
+      [...BILL_DENOMINATIONS, ...COIN_DENOMINATIONS].reduce(
         (sum, denomination) =>
           sum + denomination * Number(data?.denomination_counts[String(denomination)] || 0),
         0,
-      ) + Number(data?.denomination_counts.coins || 0),
+      ),
     [data],
   );
 
@@ -113,7 +114,7 @@ export default function CashClosing() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold">Efectivo recibido</h3>
-            <p className="text-sm text-body">Los billetes seleccionados al cobrar se agregan automáticamente. Puedes corregir el conteo de este día.</p>
+            <p className="text-sm text-body">Los billetes y monedas seleccionados al cobrar se agregan automáticamente. Puedes corregir el conteo de este día.</p>
           </div>
           <button onClick={save} disabled={saving} className="rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-60">
             {saving ? "Guardando..." : "Guardar conteo"}
@@ -127,11 +128,13 @@ export default function CashClosing() {
               <input type="number" min="0" step="1" value={data?.denomination_counts[String(denomination)] ?? 0} onChange={(event) => updateCount(String(denomination), event.target.value)} className="mt-1 w-full rounded border p-2" />
             </label>
           ))}
-          <label className="rounded-lg border bg-white p-3 text-sm dark:border-dark-3 dark:bg-gray-dark">
-            <span className="font-semibold">Monedas</span>
-            <span className="mt-1 block text-xs text-body">Valor total</span>
-            <input type="number" min="0" step="50" value={data?.denomination_counts.coins ?? 0} onChange={(event) => updateCount("coins", event.target.value)} className="mt-1 w-full rounded border p-2" />
-          </label>
+          {COIN_DENOMINATIONS.map((denomination) => (
+            <label key={denomination} className="rounded-lg border bg-white p-3 text-sm dark:border-dark-3 dark:bg-gray-dark">
+              <span className="font-semibold">Moneda de {money(denomination)}</span>
+              <span className="mt-1 block text-xs text-body">Cantidad</span>
+              <input type="number" min="0" step="1" value={data?.denomination_counts[String(denomination)] ?? 0} onChange={(event) => updateCount(String(denomination), event.target.value)} className="mt-1 w-full rounded border p-2" />
+            </label>
+          ))}
         </div>
         <p className="mt-4 text-lg font-bold">Efectivo real contado: {money(physical)}</p>
       </section>
@@ -160,6 +163,7 @@ export default function CashClosing() {
         <div className="mt-5 flex flex-wrap gap-3">
           <a href={`/api/sales/summary/daily-payment-methods/export?day=${day}`} className="rounded-lg bg-primary px-4 py-2 text-white">Descargar Excel</a>
           <a href={`/api/sales/cash-closing/pdf?day=${day}`} className="rounded-lg border px-4 py-2">Descargar PDF</a>
+          <a href={`/api/sales/pl-statement/export?month=${day.slice(0, 7)}`} className="rounded-lg bg-secondary px-4 py-2 text-white">Estado de Pérdidas y Ganancias (Excel)</a>
         </div>
       </section>
     </div>

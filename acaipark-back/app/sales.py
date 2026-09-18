@@ -7,7 +7,6 @@ import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
-from textwrap import wrap
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,8 +19,8 @@ from .reporting_periods import month_bounds
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 COLOMBIA_TZ = ZoneInfo("America/Bogota")
-CASH_DENOMINATIONS = (100000, 50000, 20000, 10000, 5000, 2000, 1000)
-LEGACY_COIN_DENOMINATIONS = (500, 200, 100, 50)
+CASH_DENOMINATIONS = (100000, 50000, 20000, 10000, 5000, 2000)
+COIN_DENOMINATIONS = (1000, 500, 200, 100, 50)
 
 
 def _period_start(period: str | None) -> datetime | None:
@@ -94,12 +93,14 @@ def _normalize_cash_counts(raw_counts: dict | None) -> dict[str, int]:
         str(value): max(0, int(raw_counts.get(str(value), 0) or 0))
         for value in CASH_DENOMINATIONS
     }
-    coins = max(0, int(raw_counts.get("coins", 0) or 0))
-    coins += sum(
-        value * max(0, int(raw_counts.get(str(value), 0) or 0))
-        for value in LEGACY_COIN_DENOMINATIONS
+    for value in COIN_DENOMINATIONS:
+        counts[str(value)] = max(0, int(raw_counts.get(str(value), 0) or 0))
+    legacy_total = max(0, int(raw_counts.get("coins", 0) or 0))
+    if legacy_total and not any(str(value) in raw_counts for value in COIN_DENOMINATIONS):
+        counts["50"] += legacy_total // 50
+    counts["coins"] = sum(
+        value * counts[str(value)] for value in COIN_DENOMINATIONS
     )
-    counts["coins"] = coins
     return counts
 
 
@@ -142,7 +143,7 @@ def get_cash_closing(day: date, db_session: Session = Depends(db.get_db)):
 
 @router.put("/cash-closing", response_model=schemas.CashClosingOut)
 def update_cash_closing(day: date, payload: schemas.CashClosingUpdate, db_session: Session = Depends(db.get_db)):
-    allowed = {str(value) for value in CASH_DENOMINATIONS} | {"coins"}
+    allowed = {str(value) for value in CASH_DENOMINATIONS} | {str(value) for value in COIN_DENOMINATIONS} | {"coins"}
     if any(key not in allowed or type(value) is not int or value < 0 for key, value in payload.denomination_counts.items()):
         raise HTTPException(status_code=400, detail="Conteo de efectivo inválido")
     closing = db_session.query(models.CashDrawerClosing).filter(models.CashDrawerClosing.business_date == day).first()
@@ -237,14 +238,11 @@ def export_daily_payment_methods_xlsx(
     section(4, "EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", 1, 3)
     section(4, "RESUMEN DE VENTAS Y MEDIOS DE PAGO", 4, 6)
     cells(5, ["Denominación", "Cantidad", "Total ($)", "Medio de pago", "Comprobante / Ref", "Monto Sistema ($)"], total=True)
-    for count_row, denomination in enumerate(CASH_DENOMINATIONS, 6):
+    for count_row, denomination in enumerate(CASH_DENOMINATIONS + COIN_DENOMINATIONS, 6):
         cells(count_row, [denomination, int(counts.get(str(denomination), 0)), f"=A{count_row}*B{count_row}"])
         sheet.cell(count_row, 1).number_format = money_format
-    coins_row = 6 + len(CASH_DENOMINATIONS)
-    cells(coins_row, ["Monedas", "", int(counts.get("coins", 0))])
-    sheet.cell(coins_row, 3).number_format = money_format
-    cash_total_row = coins_row + 1
-    cells(cash_total_row, ["TOTAL EFECTIVO RECIBIDO", "", f"=SUM(C6:C{coins_row})"], total=True)
+    cash_total_row = 6 + len(CASH_DENOMINATIONS) + len(COIN_DENOMINATIONS)
+    cells(cash_total_row, ["TOTAL EFECTIVO RECIBIDO", "", f"=SUM(C6:C{cash_total_row - 1})"], total=True)
     cells(6, ["Ventas en efectivo", "POS Sistema", float(totals["cash"])], 4)
     cells(7, ["Datáfono / tarjetas", "Vouchers / lote", float(totals["dataphone"])], 4)
     cells(8, ["Transferencias", "Bancos / billeteras", float(totals["transfer"])], 4)
@@ -303,6 +301,169 @@ def export_daily_payment_methods_xlsx(
     workbook.save(output)
     output.seek(0)
     filename = f"cierre-caja-{day.isoformat()}.xlsx"
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_PYG_CATEGORY_ROW = {
+    "local": "arriendo",
+    "nomina": "nomina",
+    "servicios": "servicios",
+    "seguros": "seguros",
+}
+
+
+def _norm_key(value: str | None) -> str:
+    text = (value or "").strip().casefold()
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+@router.get("/pl-statement.xlsx")
+def export_pl_statement_xlsx(
+    month: str,
+    db_session: Session = Depends(db.get_db),
+):
+    try:
+        import openpyxl  # type: ignore
+    except Exception:
+        raise HTTPException(
+            status_code=501,
+            detail="Exportar a Excel requiere `openpyxl` instalado en el backend",
+        )
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(status_code=400, detail="El parametro month debe tener el formato YYYY-MM")
+    start, end = month_bounds(month)
+
+    ventas = db_session.query(func.coalesce(func.sum(models.Sale.total), 0)).filter(
+        models.Sale.created_at >= start,
+        models.Sale.created_at < end,
+        models.Sale.status == "active",
+    ).scalar() or Decimal("0")
+
+    purchase_date = func.coalesce(models.Purchase.purchased_at, models.Purchase.received_at, models.Purchase.created_at)
+    compras = db_session.query(func.coalesce(func.sum(models.PurchaseItem.line_total), 0)).join(
+        models.Purchase,
+        models.PurchaseItem.purchase_id == models.Purchase.id,
+    ).filter(purchase_date >= start, purchase_date < end).scalar() or Decimal("0")
+
+    expenses_by_category_rows = db_session.query(
+        models.FixedExpense.category,
+        func.coalesce(func.sum(models.FixedExpensePayment.amount), 0),
+    ).join(models.FixedExpense).filter(
+        models.FixedExpensePayment.status == "manual",
+        models.FixedExpensePayment.due_date >= start.date(),
+        models.FixedExpensePayment.due_date < end.date(),
+    ).group_by(models.FixedExpense.category).all()
+    expenses_by_category = {_norm_key(category): total for category, total in expenses_by_category_rows}
+    expenses_by_row = {
+        row: float(expenses_by_category.get(category) or 0)
+        for category, row in _PYG_CATEGORY_ROW.items()
+    }
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "PyG Acai Park"
+    styles = openpyxl.styles
+    thin = styles.Side(style="thin", color="B7C3BE")
+    border = styles.Border(left=thin, right=thin, top=thin, bottom=thin)
+    money_format = '$ #,##0;[Red]-$ #,##0;$ "-"'
+    percent_format = "0.0%"
+    dark_green = "174D3D"
+    total_fill = styles.PatternFill("solid", fgColor="E8F1ED")
+    auto_fill = styles.PatternFill("solid", fgColor="EAF3FB")
+    editable_fill = styles.PatternFill("solid", fgColor="FFFDE7")
+
+    sheet.merge_cells("B2:E2")
+    title = sheet["B2"]
+    title.value = "Estado de Resultados Mensual (PyG Proforma - Açaí Park)"
+    title.font = styles.Font(bold=True, size=14, color=dark_green)
+    title.alignment = styles.Alignment(horizontal="center", vertical="center")
+
+    sheet.merge_cells("B3:E3")
+    period = sheet["B3"]
+    period.value = f"Periodo: {datetime(start.year, start.month, 1).strftime('%m/%Y')}"
+    period.font = styles.Font(bold=True, size=10, color="555555")
+    period.alignment = styles.Alignment(horizontal="center")
+
+    header = sheet.cell(4, 2, "Cuenta / Concepto")
+    header_value = sheet.cell(4, 3, "Valor (COP)")
+    header_percent = sheet.cell(4, 5, "% sobre Ventas")
+    for cell in (header, header_value, header_percent):
+        cell.fill = styles.PatternFill("solid", fgColor=dark_green)
+        cell.font = styles.Font(bold=True, color="FFFFFF")
+        cell.border = border
+    sheet.merge_cells(start_row=4, start_column=3, end_row=4, end_column=4)
+
+    def write_row(row: int, label: str, col: str, value, kind: str = "line", auto: bool = False) -> None:
+        label_cell = sheet.cell(row, 2, label)
+        value_cell = sheet.cell(row, 3 if col == "C" else 4, value)
+        percent_cell = sheet.cell(row, 5, f"={col}{row}/$D$5")
+        for cell in (label_cell, value_cell, percent_cell):
+            cell.border = border
+        value_cell.number_format = money_format
+        percent_cell.number_format = percent_format
+        if kind == "total":
+            label_cell.font = styles.Font(bold=True, color=dark_green)
+            value_cell.fill = total_fill
+            value_cell.font = styles.Font(bold=True, color=dark_green)
+        else:
+            value_cell.fill = auto_fill if auto else editable_fill
+
+    write_row(5, "Ingresos Operacionales (Ventas Totales)", "D", float(ventas), kind="total", auto=True)
+    write_row(6, "(-) Costo de Ventas", "D", "=C7+C8-C9", kind="total")
+    write_row(7, "  Inventario inicial", "C", 0)
+    write_row(8, "  (+) Compras", "C", float(compras), auto=True)
+    write_row(9, "  (-) Inventario final", "C", 0)
+    write_row(10, "(=) UTILIDAD BRUTA", "D", "=D5-D6", kind="total")
+    write_row(12, "(-) Gastos Operacionales Variables", "D", "=C13+C14+C15+C16", kind="total")
+    write_row(13, "  Desechables y empaques", "C", 0)
+    write_row(14, "  Comisiones por medios de pago (datafono)", "C", 0)
+    write_row(15, "  Fletes y domicilios", "C", 0)
+    write_row(16, "  Otros gastos operacionales variables", "C", 0)
+    write_row(17, "(=) MARGEN DE CONTRIBUCIÓN", "D", "=D10-D12", kind="total")
+    write_row(19, "(-) Gastos Operacionales Fijos", "D", "=C20+C21+C22+C23+C24", kind="total")
+    write_row(20, "  Arriendo", "C", expenses_by_row.get("arriendo", 0.0), auto=True)
+    write_row(21, "  Nómina", "C", expenses_by_row.get("nomina", 0.0), auto=True)
+    write_row(22, "  Servicios públicos", "C", expenses_by_row.get("servicios", 0.0), auto=True)
+    write_row(23, "  Marketing y publicidad", "C", 0)
+    write_row(24, "  Seguros", "C", expenses_by_row.get("seguros", 0.0), auto=True)
+    write_row(25, "(=) UTILIDAD OPERATIVA (EBITDA)", "D", "=D17-D19", kind="total")
+    write_row(27, "(-) Imprevistos y Mantenimiento", "C", 0)
+    write_row(28, "(=) UTILIDAD ANTES DE IMPUESTOS", "D", "=D25-C27", kind="total")
+    write_row(30, "(-) Impuesto / Monotributo / Otros", "C", 0)
+    write_row(31, "(=) UTILIDAD NETA FINAL", "D", "=D28-C30", kind="total")
+
+    note_row = 33
+    sheet.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=5)
+    note = sheet.cell(note_row, 2)
+    note.value = (
+        "Nota: Ventas, Compras y gastos mapeados (Arriendo, Nómina, Servicios, Seguros) se calcularon "
+        "automáticamente desde el sistema para el periodo. Las celdas restantes son editables y las "
+        "fórmulas de subtotales y % sobre ventas se recalculan solas."
+    )
+    note.font = styles.Font(italic=True, size=9, color="777777")
+    note.alignment = styles.Alignment(wrap_text=True, vertical="top")
+    sheet.row_dimensions[note_row].height = 40
+
+    for col, width in {"B": 52, "C": 15, "D": 15, "E": 13}.items():
+        sheet.column_dimensions[col].width = width
+    sheet.column_dimensions["A"].width = 3
+    sheet.freeze_panes = "A5"
+    sheet.sheet_view.showGridLines = False
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_options.horizontalCentered = True
+    sheet.print_area = f"B2:E{note_row}"
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    filename = f"estado-pyg-{month}.xlsx"
     return Response(
         content=output.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -541,6 +702,8 @@ def sales_adjustments_by_month(
 def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db)):
     try:
         from reportlab.lib.pagesizes import A4  # type: ignore
+        from reportlab.lib import colors  # type: ignore
+        from reportlab.lib.utils import simpleSplit  # type: ignore
         from reportlab.pdfgen import canvas  # type: ignore
     except Exception:
         raise HTTPException(status_code=501, detail="Exportar a PDF requiere `reportlab` instalado en el backend")
@@ -557,37 +720,150 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
     )
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=A4)
-    y = 800
-    def line(text: str, bold: bool = False):
+    page_w, page_h = A4
+    left, right = 42, page_w - 42
+    content_w = right - left
+
+    dark_blue = colors.HexColor("#163c62")
+    green = colors.HexColor("#1e7a4f")
+    amber = colors.HexColor("#b45309")
+    red = colors.HexColor("#b3261e")
+    muted = colors.HexColor("#5a6572")
+    text_dark = colors.HexColor("#1b2432")
+    light_blue = colors.HexColor("#e8eff7")
+    light_green = colors.HexColor("#e2f1e8")
+    light_amber = colors.HexColor("#fbeed9")
+    light_red = colors.HexColor("#f8e3e2")
+    line_gray = colors.HexColor("#ccd3da")
+    soft_gray = colors.HexColor("#c8d6e4")
+    white = colors.white
+
+    y = page_h - 46
+
+    def ensure_space(needed: int) -> None:
         nonlocal y
-        for chunk in wrap(str(text), width=100) or [""]:
-            if y < 55:
-                pdf.showPage()
-                y = 800
-            pdf.setFont("Helvetica-Bold" if bold else "Helvetica", 11 if bold else 9)
-            pdf.drawString(42, y, chunk)
-            y -= 18
-    line("CIERRE DE CAJA", True); line(f"Día: {day.strftime('%d/%m/%Y')}")
-    line("EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", True)
+        if y < needed:
+            pdf.showPage()
+            y = page_h - 46
+
+    def section(title: str, color) -> None:
+        nonlocal y
+        ensure_space(100)
+        pdf.setFillColor(color)
+        pdf.rect(left, y - 20, content_w, 20, stroke=0, fill=1)
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.setFillColor(white)
+        pdf.drawString(left + 8, y - 14, title)
+        y -= 32
+
+    def text(content, bold: bool = False, size: int = 9, color=None, indent: int = 0, gap: int = 16) -> None:
+        nonlocal y
+        ensure_space(50)
+        font = "Helvetica-Bold" if bold else "Helvetica"
+        pdf.setFont(font, size)
+        pdf.setFillColor(color or text_dark)
+        for chunk in simpleSplit(str(content), font, size, content_w - indent) or [""]:
+            pdf.drawString(left + indent, y, chunk)
+            y -= gap
+
+    def row(label: str, value: str, bg, fg, size: int = 11, label_size: int = 10) -> None:
+        nonlocal y
+        ensure_space(70)
+        pdf.setFillColor(text_dark)
+        pdf.setFont("Helvetica-Bold", label_size)
+        pdf.drawString(left + 6, y, label)
+        pdf.setFont("Helvetica-Bold", size)
+        tw = pdf.stringWidth(value, "Helvetica-Bold", size)
+        box_w = tw + 20
+        box_h = size + 10
+        box_x = right - box_w - 6
+        pdf.setFillColor(bg)
+        pdf.rect(box_x, y - box_h + 6, box_w, box_h, stroke=0, fill=1)
+        pdf.setFillColor(fg)
+        pdf.drawString(box_x + 10, y - box_h + 12, value)
+        y -= box_h + 10
+
+    # ---- Encabezado ----
+    pdf.setFillColor(dark_blue)
+    pdf.rect(left, y - 26, content_w, 26, stroke=0, fill=1)
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.setFillColor(white)
+    pdf.drawString(left + 10, y - 18, "CIERRE DE CAJA")
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.setFillColor(soft_gray)
+    pdf.drawRightString(right - 10, y - 18, f"CIERRE DEL DÍA: {day.strftime('%d/%m/%Y')}")
+    y -= 44
+
+    # ---- Fecha y base inicial (base inicial justo debajo de la fecha) ----
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.setFillColor(text_dark)
+    pdf.drawString(left, y, f"Día: {day.strftime('%d/%m/%Y')}")
+    y -= 26
+    pdf.setFillColor(light_amber)
+    pdf.rect(left, y - 20, content_w, 20, stroke=0, fill=1)
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.setFillColor(amber)
+    pdf.drawString(left + 8, y - 14, "Base inicial  (apertura de caja):")
+    pdf.drawRightString(right - 8, y - 14, f"$ {closing.opening_total:,.0f}")
+    y -= 32
+
+    # ---- Efectivo recibido: billetes y monedas ----
+    section("EFECTIVO RECIBIDO (BILLETES Y MONEDAS)", green)
     for denomination in CASH_DENOMINATIONS:
         quantity = closing.denomination_counts[str(denomination)]
-        line(f"${denomination:,.0f}: {quantity}  =  ${denomination * quantity:,.0f}")
-    line(f"Monedas: ${closing.denomination_counts['coins']:,.0f}")
-    line(f"Efectivo real contado: ${closing.physical_cash:,.0f}", True)
-    line("RESUMEN DE VENTAS Y MEDIOS DE PAGO", True)
-    line(f"Efectivo: ${closing.cash_total:,.0f}"); line(f"Datáfono: ${closing.dataphone_total:,.0f}"); line(f"Transferencias: ${closing.transfer_total:,.0f}")
-    line("GASTOS Y SALIDAS DE CAJA", True)
+        text(f"$ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}")
+    text("MONEDAS", bold=True, color=muted, gap=14)
+    for denomination in COIN_DENOMINATIONS:
+        quantity = closing.denomination_counts[str(denomination)]
+        text(f"   $ {denomination:,.0f}:  {quantity}  =  $ {denomination * quantity:,.0f}", indent=8)
+    text(f"Total monedas:  $ {closing.denomination_counts['coins']:,.0f}", bold=True, color=muted, gap=22)
+    row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", green, white, size=13)
+
+    # ---- Resumen de ventas ----
+    section("RESUMEN DE VENTAS Y MEDIOS DE PAGO", dark_blue)
+    text("Efectivo (ventas del día, base del esperado):", bold=True)
+    row("Ventas en efectivo", f"$ {closing.cash_total:,.0f}", light_blue, dark_blue, size=12)
+    text(f"Datáfono:  $ {closing.dataphone_total:,.0f}")
+    text(f"Transferencias:  $ {closing.transfer_total:,.0f}")
+    row("Total ventas registradas", f"$ {closing.total:,.0f}", dark_blue, white, size=12)
+
+    # ---- Gastos y salidas de caja ----
+    section("GASTOS Y SALIDAS DE CAJA", amber)
     if daily_expenses:
         for index, expense in enumerate(daily_expenses, 1):
             concept = expense.concept or expense.fixed_expense.category or "Sin concepto"
-            line(f"{index}. {expense.fixed_expense.name}", True)
-            line(f"   Concepto / Ref: {concept}    Monto: ${Decimal(expense.amount):,.0f}")
+            text(f"{index}. {expense.fixed_expense.name}", bold=True, gap=14)
+            text(f"      Concepto / Ref: {concept}      Monto: $ {Decimal(expense.amount):,.0f}", gap=14)
     else:
-        line("Sin gastos registrados")
-    line(f"TOTAL GASTOS CAJA: ${closing.expenses_total:,.0f}", True)
-    line("CONCILIACIÓN FINAL DE CAJA", True); line(f"Base inicial: ${closing.opening_total:,.0f}"); line(f"Efectivo esperado: ${closing.expected_cash:,.0f}"); line(f"Diferencia: ${closing.difference:,.0f}")
-    line("OBSERVACIONES / NOVEDADES DEL TURNO", True); line("_______________________________________________")
-    pdf.save(); output.seek(0)
+        text("Sin gastos registrados")
+    row("TOTAL GASTOS CAJA", f"$ {closing.expenses_total:,.0f}", light_red, red, size=12)
+
+    # ---- Conciliación final ----
+    section("CONCILIACIÓN FINAL DE CAJA", dark_blue)
+    text("Efectivo esperado = Base inicial + Ventas en efectivo − Gastos del día", bold=True, size=8, color=muted, gap=14)
+    text(f"  $ {closing.opening_total:,.0f}  +  $ {closing.cash_total:,.0f}  −  $ {closing.expenses_total:,.0f}", size=9, indent=8, gap=24)
+    row("Efectivo esperado", f"$ {closing.expected_cash:,.0f}", light_blue, dark_blue, size=13)
+    row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", light_green, green, size=13)
+    sign = "-$ " if closing.difference < 0 else "$ "
+    row("Diferencia  (real − esperado)", f"{sign}{abs(closing.difference):,.0f}",
+        light_red if closing.difference < 0 else light_green,
+        red if closing.difference < 0 else green, size=13)
+
+    # ---- Observaciones ----
+    section("OBSERVACIONES / NOVEDADES DEL TURNO", muted)
+    text("El efectivo esperado usa únicamente ventas pagadas en efectivo y gastos registrados del día.")
+    pdf.setStrokeColor(line_gray)
+    pdf.setLineWidth(0.8)
+    pdf.line(left, y, right, y)
+    y -= 26
+    pdf.setFont("Helvetica", 9)
+    pdf.setFillColor(text_dark)
+    pdf.drawString(left, y, "Firma Cajero(a)/Responsable:  ______________________________")
+    y -= 18
+    pdf.drawString(left, y, "Firma Administrador/Supervisor:  ____________________________")
+
+    pdf.save()
+    output.seek(0)
     return Response(content=output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="cierre-caja-{day.isoformat()}.pdf"'})
 
 

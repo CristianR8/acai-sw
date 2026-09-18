@@ -20,6 +20,7 @@ type ExpensePayment = {
   payment_date: string;
   amount: number | string;
   status?: string;
+  expense_type?: string | null;
 };
 
 function numericAmount(value: unknown) {
@@ -40,6 +41,11 @@ function localToday() {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+const EXPENSE_TYPE_LABELS: Record<string, string> = {
+  operacional_variable: "Operacional variable",
+  operacional_fijo: "Operacional fijo",
+};
+
 export default function Expenses() {
   const [expenses, setExpenses] = useState<FixedExpense[]>([]);
   const [payments, setPayments] = useState<ExpensePayment[]>([]);
@@ -47,6 +53,7 @@ export default function Expenses() {
   const [paymentDate, setPaymentDate] = useState(localToday);
   const [amountInput, setAmountInput] = useState("");
   const [concept, setConcept] = useState("");
+  const [expenseType, setExpenseType] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -120,6 +127,7 @@ export default function Expenses() {
         payment_date: paymentDate,
         amount: value,
         concept: concept.trim() || null,
+        expense_type: expenseType || null,
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -135,15 +143,12 @@ export default function Expenses() {
     setRange({ from: `${targetMonth}-01`, to: monthLastDay(targetMonth) });
     setAmountInput("");
     setConcept("");
+    setExpenseType("");
     setMessage("Gasto registrado correctamente.");
   }
 
   return (
     <div className="space-y-6">
-      <MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}>
-        <DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} />
-      </MonthFilter>
-
       <section className="rounded-[10px] bg-gradient-to-br from-primary to-[#163c62] p-6 text-white shadow-1">
         <p className="text-sm font-medium text-white/75">Gastos del período</p>
         <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
@@ -173,6 +178,13 @@ export default function Expenses() {
           <label className="block text-sm font-medium text-dark dark:text-white">{isCashierPayroll ? "Nombre del cajero/a" : "Concepto"}
             <input type="text" value={concept} onChange={(event) => setConcept(event.target.value)} placeholder={isCashierPayroll ? "Nombre del cajero/a" : "Describe el concepto del gasto"} className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />
           </label>
+          <label className="block text-sm font-medium text-dark dark:text-white">Clasificación
+            <select value={expenseType} onChange={(event) => setExpenseType(event.target.value)} className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white">
+              <option value="">Sin clasificar</option>
+              <option value="operacional_variable">Operacional variable</option>
+              <option value="operacional_fijo">Operacional fijo</option>
+            </select>
+          </label>
           <label className="block text-sm font-medium text-dark dark:text-white">Fecha de pago
             <input type="date" value={paymentDate} max={localToday()} onChange={(event) => setPaymentDate(event.target.value)} required className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />
           </label>
@@ -186,14 +198,19 @@ export default function Expenses() {
       </section>
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
-        <div className="mb-5">
-          <h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2>
-          <p className="mt-1 text-sm text-body">Compras del rango seleccionado; las anuladas no suman en los totales.</p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-dark dark:text-white">Historial de gastos</h2>
+            <p className="mt-1 text-sm text-body">Gastos del rango seleccionado; los anulados no suman en los totales.</p>
+          </div>
+          <MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}>
+            <DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} />
+          </MonthFilter>
         </div>
         {loading ? <p className="text-sm text-body">Cargando registros...</p> : payments.length === 0 ? <p className="rounded-lg border border-dashed border-stroke p-5 text-sm text-body dark:border-dark-3">No hay gastos registrados en el rango seleccionado.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[780px] text-left text-sm">
-              <thead className="border-b border-stroke text-xs uppercase text-body dark:border-dark-3"><tr><th className="px-3 py-3 font-semibold">Fecha</th><th className="px-3 py-3 font-semibold">Tipo de gasto</th><th className="px-3 py-3 font-semibold">Concepto</th><th className="px-3 py-3 font-semibold">Categoría</th><th className="px-3 py-3 font-semibold">Registro</th><th className="px-3 py-3 text-right font-semibold">Monto pagado</th><th className="px-3 py-3 text-right font-semibold">Acciones</th></tr></thead>
+              <thead className="border-b border-stroke text-xs uppercase text-body dark:border-dark-3"><tr><th className="px-3 py-3 font-semibold">Fecha</th><th className="px-3 py-3 font-semibold">Tipo de gasto</th><th className="px-3 py-3 font-semibold">Concepto</th><th className="px-3 py-3 font-semibold">Categoría</th><th className="px-3 py-3 font-semibold">Clasificación</th><th className="px-3 py-3 font-semibold">Registro</th><th className="px-3 py-3 text-right font-semibold">Monto pagado</th><th className="px-3 py-3 text-right font-semibold">Acciones</th></tr></thead>
               <tbody>{payments.map((payment) => {
                 const isVoid = payment.status === "void";
                 return <tr key={payment.id} className={`border-b last:border-0 ${isVoid ? "border-stroke bg-gray-100/60 dark:border-dark-3 dark:bg-dark-2" : "border-green-100 bg-green-50/70 dark:border-green-900/40 dark:bg-green-900/10"}`}>
@@ -201,6 +218,7 @@ export default function Expenses() {
                   <td className={`px-3 py-4 font-medium ${isVoid ? "text-body" : "text-dark dark:text-white"}`}>{payment.name}</td>
                   <td className="max-w-xs break-words px-3 py-4 text-body">{payment.concept || "—"}</td>
                   <td className="px-3 py-4 text-body">{payment.category}</td>
+                  <td className="px-3 py-4 text-body">{payment.expense_type ? EXPENSE_TYPE_LABELS[payment.expense_type] || payment.expense_type : "—"}</td>
                   <td className="px-3 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isVoid ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"}`}>{isVoid ? "Anulado" : "Registrado"}</span></td>
                   <td className={`px-3 py-4 text-right font-semibold ${isVoid ? "text-body line-through" : "text-green-700 dark:text-green-300"}`}>{money(payment.amount)}</td>
                   <td className="px-3 py-4 text-right">{!isVoid ? <button type="button" onClick={() => voidPayment(payment)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red transition hover:bg-red/10">Anular</button> : null}</td>

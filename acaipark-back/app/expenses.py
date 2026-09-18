@@ -43,6 +43,7 @@ def _payment_out(payment: models.FixedExpensePayment) -> dict:
         "status": payment.status,
         "concept": payment.concept,
         "paid_at": payment.paid_at,
+        "expense_type": payment.expense_type,
     }
 
 
@@ -109,27 +110,24 @@ def register_manual_expense_payment(
         raise HTTPException(status_code=404, detail="Concepto de gasto no encontrado")
 
     period = payload.payment_date.replace(day=1)
+    # Los registros antiguos con estado scheduled fueron generados por el
+    # calendario automático. Al registrar el gasto real, se reutiliza ese
+    # registro para que no bloquee el pago manual ni se duplique el periodo.
     existing = (
         db_session.query(models.FixedExpensePayment)
         .filter(
             models.FixedExpensePayment.fixed_expense_id == expense.id,
             models.FixedExpensePayment.period == period,
+            models.FixedExpensePayment.status == "scheduled",
         )
         .first()
     )
-    if existing and existing.status == "manual":
-        raise HTTPException(
-            status_code=409,
-            detail="Este gasto ya fue registrado manualmente este mes.",
-        )
-
-    # Los registros antiguos con estado scheduled fueron generados por el
-    # calendario automático. Al registrar el gasto real, se reutiliza ese
-    # registro para que no bloquee el pago manual ni se duplique el periodo.
     if existing:
         existing.due_date = payload.payment_date
         existing.amount = payload.amount
         existing.concept = (payload.concept or "").strip() or None
+        if payload.expense_type is not None:
+            existing.expense_type = payload.expense_type.value
         existing.status = "manual"
         existing.paid_at = datetime.now(timezone.utc)
         db_session.add(existing)
@@ -143,6 +141,7 @@ def register_manual_expense_payment(
         due_date=payload.payment_date,
         amount=payload.amount,
         concept=(payload.concept or "").strip() or None,
+        expense_type=payload.expense_type.value if payload.expense_type is not None else None,
         status="manual",
         paid_at=datetime.now(timezone.utc),
     )

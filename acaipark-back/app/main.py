@@ -42,6 +42,9 @@ def _auto_migrate_schema() -> None:
             from .inventory_costs import backfill_presentation_costs
             backfill_presentation_costs(conn)
             conn.execute(text("ALTER TABLE IF EXISTS fixed_expense_payments ADD COLUMN IF NOT EXISTS concept TEXT"))
+            conn.execute(text("ALTER TABLE IF EXISTS fixed_expense_payments ADD COLUMN IF NOT EXISTS expense_type VARCHAR"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_fixed_expense_payments_expense_type ON fixed_expense_payments(expense_type)"))
+            conn.execute(text("ALTER TABLE IF EXISTS fixed_expense_payments DROP CONSTRAINT IF EXISTS uq_fixed_expense_payment_period"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ALTER COLUMN unit DROP NOT NULL"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products DROP COLUMN IF EXISTS reorder_point"))
             conn.execute(

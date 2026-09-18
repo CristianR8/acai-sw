@@ -16,6 +16,11 @@ class PaymentMethod(str, Enum):
     transfer = "transfer"
 
 
+class ExpenseType(str, Enum):
+    operacional_variable = "operacional_variable"
+    operacional_fijo = "operacional_fijo"
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -249,6 +254,7 @@ class FixedExpensePaymentCreate(BaseModel):
     fixed_expense_id: int
     payment_date: date
     amount: Decimal = Field(gt=0)
+    expense_type: ExpenseType | None = None
 
 
 class ManualExpensePaymentOut(BaseModel):
@@ -261,6 +267,7 @@ class ManualExpensePaymentOut(BaseModel):
     amount: Decimal
     status: str = "manual"
     paid_at: datetime | None = None
+    expense_type: ExpenseType | None = None
 
 
 class RecipeItemUpsert(BaseModel):

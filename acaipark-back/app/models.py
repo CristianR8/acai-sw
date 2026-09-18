@@ -190,7 +190,6 @@ class FixedExpense(Base):
 
 class FixedExpensePayment(Base):
     __tablename__ = "fixed_expense_payments"
-    __table_args__ = (UniqueConstraint("fixed_expense_id", "period", name="uq_fixed_expense_payment_period"),)
 
     id = Column(Integer, primary_key=True, index=True)
     fixed_expense_id = Column(Integer, ForeignKey("fixed_expenses.id"), nullable=False, index=True)
@@ -198,6 +197,7 @@ class FixedExpensePayment(Base):
     due_date = Column(Date, nullable=False, index=True)
     concept = Column(Text, nullable=True)
     amount = Column(Numeric(14, 4), nullable=False, default=0)
+    expense_type = Column(String, nullable=True, index=True)
     status = Column(String, nullable=False, default="scheduled", index=True)
     paid_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
