@@ -3,6 +3,7 @@
 import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
 import DateRangeFilter, { currentMonthRange } from "@/components/DateRangeFilter";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FaRegEdit } from "react-icons/fa";
 
 type FixedExpense = {
   id: number;
@@ -56,6 +57,7 @@ export default function Expenses() {
   const [expenseType, setExpenseType] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [month, setMonth] = useState(currentMonth);
   const [range, setRange] = useState(currentMonthRange);
@@ -93,6 +95,25 @@ export default function Expenses() {
   const selectedExpense = expenses.find((expense) => expense.id === Number(expenseId));
   const isCashierPayroll = selectedExpense?.name === "Nómina de cajero";
 
+  function cancelEdit() {
+    setEditingPaymentId(null);
+    setExpenseId("");
+    setPaymentDate(localToday());
+    setAmountInput("");
+    setConcept("");
+    setExpenseType("");
+  }
+
+  function startEdit(payment: ExpensePayment) {
+    setEditingPaymentId(payment.id);
+    setExpenseId(String(payment.fixed_expense_id));
+    setPaymentDate(payment.payment_date);
+    setAmountInput(String(numericAmount(payment.amount)));
+    setConcept(payment.concept ?? "");
+    setExpenseType(payment.expense_type ?? "");
+    setMessage(null);
+  }
+
   async function voidPayment(payment: ExpensePayment) {
     if (!window.confirm(`¿Anular la compra "${payment.name}" de ${money(payment.amount)}?`)) return;
     const response = await fetch(`/api/expenses/payments/${payment.id}/void`, {
@@ -119,8 +140,8 @@ export default function Expenses() {
 
     setSaving(true);
     setMessage(null);
-    const response = await fetch("/api/expenses/payments", {
-      method: "POST",
+    const response = await fetch(editingPaymentId ? `/api/expenses/payments/${editingPaymentId}` : "/api/expenses/payments", {
+      method: editingPaymentId ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         fixed_expense_id: Number(expenseId),
@@ -133,7 +154,7 @@ export default function Expenses() {
     const payload = await response.json().catch(() => null);
     setSaving(false);
     if (!response.ok) {
-      setMessage(payload?.detail ?? payload?.message ?? "No se pudo registrar el gasto.");
+      setMessage(payload?.detail ?? payload?.message ?? `No se pudo ${editingPaymentId ? "actualizar" : "registrar"} el gasto.`);
       return;
     }
 
@@ -141,10 +162,8 @@ export default function Expenses() {
     const targetMonth = `${year}-${payMonth}`;
     setMonth(targetMonth);
     setRange({ from: `${targetMonth}-01`, to: monthLastDay(targetMonth) });
-    setAmountInput("");
-    setConcept("");
-    setExpenseType("");
-    setMessage("Gasto registrado correctamente.");
+    cancelEdit();
+    setMessage(editingPaymentId ? "Gasto actualizado correctamente." : "Gasto registrado correctamente.");
   }
 
   return (
@@ -164,7 +183,7 @@ export default function Expenses() {
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <div className="mb-5">
-          <h2 className="text-xl font-semibold text-dark dark:text-white">Registrar gasto</h2>
+          <h2 className="text-xl font-semibold text-dark dark:text-white">{editingPaymentId ? "Editar gasto" : "Registrar gasto"}</h2>
           <p className="mt-1 text-sm text-body">Elige el tipo de gasto y agrega el concepto, la fecha y el valor real del pago.</p>
         </div>
         {message ? <p className="mb-4 rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">{message}</p> : null}
@@ -191,9 +210,12 @@ export default function Expenses() {
           <label className="block text-sm font-medium text-dark dark:text-white">Monto pagado
             <input value={amountInput} inputMode="numeric" placeholder="$ 0" onChange={(event) => setAmountInput(event.target.value.replace(/\D/g, ""))} required className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white" />
           </label>
-          <button disabled={saving} className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
-            {saving ? "Registrando..." : "Registrar gasto"}
-          </button>
+          <div className="flex gap-2">
+            <button disabled={saving} className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
+              {saving ? "Guardando..." : editingPaymentId ? "Guardar cambios" : "Registrar gasto"}
+            </button>
+            {editingPaymentId ? <button type="button" onClick={cancelEdit} className="rounded-md border border-stroke px-5 py-2.5 text-sm font-semibold text-body transition hover:bg-gray-100 dark:border-dark-3 dark:hover:bg-dark-2">Cancelar</button> : null}
+          </div>
         </form>
       </section>
 
@@ -221,7 +243,7 @@ export default function Expenses() {
                   <td className="px-3 py-4 text-body">{payment.expense_type ? EXPENSE_TYPE_LABELS[payment.expense_type] || payment.expense_type : "—"}</td>
                   <td className="px-3 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isVoid ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"}`}>{isVoid ? "Anulado" : "Registrado"}</span></td>
                   <td className={`px-3 py-4 text-right font-semibold ${isVoid ? "text-body line-through" : "text-green-700 dark:text-green-300"}`}>{money(payment.amount)}</td>
-                  <td className="px-3 py-4 text-right">{!isVoid ? <button type="button" onClick={() => voidPayment(payment)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red transition hover:bg-red/10">Anular</button> : null}</td>
+                  <td className="px-3 py-4 text-right">{!isVoid ? <div className="flex justify-end gap-2"><button type="button" onClick={() => startEdit(payment)} title={`Editar ${payment.name}`} aria-label={`Editar ${payment.name}`} className="rounded-md border border-primary/40 p-1.5 text-primary transition hover:bg-primary/10"><FaRegEdit aria-hidden="true" /></button><button type="button" onClick={() => voidPayment(payment)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red transition hover:bg-red/10">Anular</button></div> : null}</td>
                 </tr>;
               })}</tbody>
             </table>

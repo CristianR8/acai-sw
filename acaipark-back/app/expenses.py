@@ -151,6 +151,36 @@ def register_manual_expense_payment(
     return _payment_out(payment)
 
 
+@router.put("/payments/{payment_id}", response_model=schemas.ManualExpensePaymentOut)
+def update_manual_expense_payment(
+    payment_id: int,
+    payload: schemas.FixedExpensePaymentUpdate,
+    db_session: Session = Depends(db.get_db),
+):
+    if payload.payment_date > date.today():
+        raise HTTPException(status_code=400, detail="La fecha del gasto no puede ser futura")
+    payment = db_session.query(models.FixedExpensePayment).filter(models.FixedExpensePayment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pago no encontrado")
+    if payment.status != "manual":
+        raise HTTPException(status_code=409, detail="Solo se pueden editar gastos registrados manualmente.")
+    expense = db_session.query(models.FixedExpense).filter(
+        models.FixedExpense.id == payload.fixed_expense_id,
+        models.FixedExpense.is_active == True,  # noqa: E712
+    ).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Concepto de gasto no encontrado")
+    payment.fixed_expense_id = expense.id
+    payment.period = payload.payment_date.replace(day=1)
+    payment.due_date = payload.payment_date
+    payment.amount = payload.amount
+    payment.concept = (payload.concept or "").strip() or None
+    payment.expense_type = payload.expense_type.value if payload.expense_type is not None else None
+    db_session.commit()
+    db_session.refresh(payment)
+    return _payment_out(payment)
+
+
 @router.post("/payments/{payment_id}/void", response_model=schemas.ManualExpensePaymentOut)
 def void_manual_expense_payment(
     payment_id: int,

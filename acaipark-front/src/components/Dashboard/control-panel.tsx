@@ -17,6 +17,7 @@ type Sale = {
 
 type Purchase = {
   total_cost: number | string;
+  status?: string;
   created_at: string;
   purchased_at?: string | null;
   received_at?: string | null;
@@ -148,7 +149,7 @@ export default function ControlPanel({ range }: { range: DateRange }) {
   const totalCourtesy = sales
     .filter((sale) => sale.status !== "void")
     .reduce((sum, sale) => sum + safeNumber(sale.courtesy_total), 0);
-  const totalPurchases = purchases.reduce((sum, purchase) => sum + safeNumber(purchase.total_cost), 0);
+  const totalPurchases = purchases.reduce((sum, purchase) => sum + (purchase.status === "void" ? 0 : safeNumber(purchase.total_cost)), 0);
   const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.status === "void" ? 0 : safeNumber(expense.amount)), 0);
   const activeSales = sales.filter((sale) => sale.status !== "void");
   const monthlyPayments = activeSales.reduce((totals, sale) => {

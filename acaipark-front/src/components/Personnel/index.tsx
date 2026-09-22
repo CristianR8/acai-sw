@@ -40,6 +40,7 @@ type Purchase = {
   purchased_at?: string | null;
   created_at: string;
   total_cost: number | string;
+  status?: string;
 };
 
 type DetailsEntry = {
@@ -277,7 +278,7 @@ export default function Personnel() {
         const entries =
           Array.isArray(payload) && payload.length > 0
             ? payload
-                .filter((purchase) => purchase.supplier_id === target.id)
+                .filter((purchase) => purchase.supplier_id === target.id && purchase.status !== "void")
                 .map((purchase) => ({
                   id: purchase.id,
                   date: formatDate(purchase.purchased_at ?? purchase.created_at),

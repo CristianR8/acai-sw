@@ -347,7 +347,11 @@ def export_pl_statement_xlsx(
     compras = db_session.query(func.coalesce(func.sum(models.PurchaseItem.line_total), 0)).join(
         models.Purchase,
         models.PurchaseItem.purchase_id == models.Purchase.id,
-    ).filter(purchase_date >= start, purchase_date < end).scalar() or Decimal("0")
+    ).filter(
+        purchase_date >= start,
+        purchase_date < end,
+        models.Purchase.status != "void",
+    ).scalar() or Decimal("0")
 
     expenses_by_category_rows = db_session.query(
         models.FixedExpense.category,

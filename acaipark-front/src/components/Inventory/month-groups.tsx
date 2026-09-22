@@ -32,6 +32,7 @@ export default function InventoryMonthGroups({ kind, searchTerm, productsLoading
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => { onSelect(null); }, [onSelect]);
   useEffect(() => {
@@ -67,7 +68,23 @@ export default function InventoryMonthGroups({ kind, searchTerm, productsLoading
     }
     void load();
     return () => { active = false; };
-  }, [kind, targetMonth]);
+  }, [kind, targetMonth, reloadToken]);
+
+  function editPurchase(purchaseId: number) {
+    window.location.href = `/inventory/purchases?edit=${purchaseId}`;
+  }
+
+  async function voidPurchase(purchaseId: number) {
+    if (!window.confirm(`¿Anular la compra #${purchaseId}? Se revertirá su entrada de inventario y no contará como egreso.`)) return;
+    setMessage(null);
+    const response = await fetch(`/api/inventory/purchases/${purchaseId}/void`, { method: "POST" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setMessage(payload?.detail ?? payload?.message ?? "No se pudo anular la compra.");
+      return;
+    }
+    setReloadToken((value) => value + 1);
+  }
 
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const visibleEntries = useMemo(() => {
@@ -87,7 +104,7 @@ export default function InventoryMonthGroups({ kind, searchTerm, productsLoading
       {groups.length === 0 && <p className="text-body text-sm">Aún no hay compras registradas.</p>}
     </div> : <>
       <div className="flex flex-wrap items-center gap-4 border-b border-stroke pb-3 dark:border-dark-3"><button type="button" onClick={() => setSelectedGroupId(null)} className="text-sm font-semibold text-primary">← Volver a los meses</button><h4 className="font-semibold text-dark dark:text-white">{selectedGroup.name}</h4></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-gray-2 text-dark dark:bg-dark-2 dark:text-white"><tr>{["Producto", "Categoría", "Proveedor", "Compra", "Fecha", "Cantidad", "Costo unitario", "Total compra"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{visibleEntries.length === 0 ? <tr><td colSpan={8} className="text-body p-5">No hay compras en este mes para esta búsqueda.</td></tr> : visibleEntries.map((entry) => <tr id={`purchase-item-${entry.id}`} key={entry.id} className={`border-b border-stroke text-dark dark:border-dark-3 dark:text-white ${entry.id === targetItemId ? "bg-primary/10" : ""}`}><td className="px-3 py-3 font-medium">{entry.name}</td><td className="px-3 py-3">{entry.category || "—"}</td><td className="px-3 py-3">{entry.supplier_name || "—"}</td><td className="px-3 py-3">#{entry.purchase_id}</td><td className="px-3 py-3">{date(entry.purchased_at)}</td><td className="px-3 py-3">{quantity(entry.quantity)} {entry.unit}</td><td className="px-3 py-3">{money(entry.unit_cost)}</td><td className="px-3 py-3">{money(entry.line_total)}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left text-sm"><thead className="bg-gray-2 text-dark dark:bg-dark-2 dark:text-white"><tr>{["Producto", "Categoría", "Proveedor", "Compra", "Fecha", "Cantidad", "Costo unitario", "Total compra", "Acciones"].map((label) => <th key={label} className={`px-3 py-3 font-medium ${label === "Acciones" ? "text-right" : ""}`}>{label}</th>)}</tr></thead><tbody>{visibleEntries.length === 0 ? <tr><td colSpan={9} className="text-body p-5">No hay compras en este mes para esta búsqueda.</td></tr> : visibleEntries.map((entry) => <tr id={`purchase-item-${entry.id}`} key={entry.id} className={`border-b border-stroke text-dark dark:border-dark-3 dark:text-white ${entry.id === targetItemId ? "bg-primary/10" : ""}`}><td className="px-3 py-3 font-medium">{entry.name}</td><td className="px-3 py-3">{entry.category || "—"}</td><td className="px-3 py-3">{entry.supplier_name || "—"}</td><td className="px-3 py-3">#{entry.purchase_id}</td><td className="px-3 py-3">{date(entry.purchased_at)}</td><td className="px-3 py-3">{quantity(entry.quantity)} {entry.unit}</td><td className="px-3 py-3">{money(entry.unit_cost)}</td><td className="px-3 py-3">{money(entry.line_total)}</td><td className="px-3 py-3 text-right"><div className="flex justify-end gap-2"><button type="button" onClick={() => editPurchase(entry.purchase_id)} className="rounded-md border border-primary/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10">Editar</button><button type="button" onClick={() => void voidPurchase(entry.purchase_id)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red hover:bg-red/10">Anular</button></div></td></tr>)}</tbody></table></div>
     </>}
   </section>;
 }

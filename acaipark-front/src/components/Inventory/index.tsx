@@ -841,14 +841,17 @@ export default function Inventory({
     }
   }
 
-  async function handleDeleteProduct(id: number) {
+  async function handleVoidProduct(id: number) {
     if (deletingIds.has(id)) return;
+    if (!window.confirm("¿Anular este ítem del inventario? Se ocultará del inventario activo, sin eliminar su historial.")) return;
     setDeletingIds((prev) => new Set(prev).add(id));
     try {
       const response = await fetch(`/api/inventory/products/${id}`, {
-        method: "DELETE",
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ is_active: false }),
       });
-      if (!response.ok && response.status !== 204) {
+      if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as any;
         throw new Error(
           (typeof payload?.message === "string" && payload.message) || "Error",
@@ -1628,12 +1631,12 @@ export default function Inventory({
                           <button
                             type="button"
                             disabled={deletingIds.has(p.id)}
-                            onClick={() => handleDeleteProduct(p.id)}
+                            onClick={() => handleVoidProduct(p.id)}
                             className="rounded-md bg-red px-3 py-1.5 text-sm font-medium text-white hover:bg-red/90 disabled:opacity-60"
                           >
                             {deletingIds.has(p.id)
-                              ? "Eliminando..."
-                              : "Eliminar"}
+                              ? "Anulando..."
+                              : "Anular"}
                           </button>
                         </div>
                       </td>

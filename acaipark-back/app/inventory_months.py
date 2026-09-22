@@ -73,8 +73,8 @@ class PurchaseRegistrationOut(BaseModel):
 
 @router.get("/purchase-items", response_model=list[PurchaseRegistrationOut])
 def list_purchase_registrations(kind: schemas.InventoryProductKind | None = None, db_session: Session = Depends(db.get_db)):
-    query = (db_session.query(models.PurchaseItem).join(models.InventoryProduct)
-             .filter(models.InventoryProduct.is_active.is_(True))
+    query = (db_session.query(models.PurchaseItem).join(models.InventoryProduct).join(models.Purchase)
+             .filter(models.InventoryProduct.is_active.is_(True), models.Purchase.status != "void")
              .options(joinedload(models.PurchaseItem.product), joinedload(models.PurchaseItem.supplier),
                       joinedload(models.PurchaseItem.purchase).joinedload(models.Purchase.supplier))
              .order_by(models.PurchaseItem.purchase_id.desc(), models.PurchaseItem.id))

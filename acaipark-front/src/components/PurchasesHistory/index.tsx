@@ -3,9 +3,9 @@
 import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
 import DateRangeFilter, { currentMonthRange } from "@/components/DateRangeFilter";
 import { useEffect, useState } from "react";
-import { FaRegTrashAlt } from "react-icons/fa";
+import { FaRegEdit, FaRegTrashAlt } from "react-icons/fa";
 
-type Purchase = { id: number; invoice_id?: string | null; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; items: Array<{ id: number; product_name?: string | null; product_kind?: "ingredient" | "material" | null }> };
+type Purchase = { id: number; invoice_id?: string | null; supplier_id?: number | null; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; status?: string; items: Array<{ id: number; product_id: number; product_name?: string | null; product_kind?: "ingredient" | "material" | null; supplier_id?: number | null; quantity: number | string; unit_cost: number | string; line_total: number | string }> };
 type Supplier = { id: number; name: string };
 type Product = { id: number; name: string; kind: "ingredient" | "material"; unit?: string | null };
 type PurchaseRow = { mode: "existing" | "new"; productId: string; productName: string; kind: "ingredient" | "material"; unit: string; supplierId: string; quantity: string; totalCost: string };
@@ -45,6 +45,7 @@ export default function PurchasesHistory() {
   const [sharedSupplierId, setSharedSupplierId] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -75,7 +76,17 @@ export default function PurchasesHistory() {
     ]);
   }, [reloadToken]);
 
+  useEffect(() => {
+    const purchaseId = Number(new URLSearchParams(window.location.search).get("edit"));
+    if (!purchaseId) return;
+    const purchase = purchases.find((entry) => entry.id === purchaseId && entry.status !== "void");
+    if (!purchase) return;
+    startEdit(purchase);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [purchases]);
+
   function resetForm() {
+    setEditingPurchaseId(null);
     setPurchaseDate(localDateInputValue());
     setInvoiceId("");
     setRows([emptyRow()]);
@@ -101,6 +112,28 @@ export default function PurchasesHistory() {
   function addRow() { setRows((current) => [...current, { ...emptyRow(), supplierId: useSameSupplier ? sharedSupplierId : "" }]); }
   function removeRow(index: number) { setRows((current) => current.length === 1 ? current : current.filter((_, rowIndex) => rowIndex !== index)); }
 
+  function startEdit(purchase: Purchase) {
+    const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at;
+    const supplierIds = purchase.items.map((item) => item.supplier_id ? String(item.supplier_id) : "");
+    const allSameSupplier = supplierIds.every((id) => id === supplierIds[0]);
+    setEditingPurchaseId(purchase.id);
+    setPurchaseDate(purchaseDateValue.slice(0, 10));
+    setInvoiceId(purchase.invoice_id ?? "");
+    setUseSameSupplier(allSameSupplier);
+    setSharedSupplierId(allSameSupplier ? supplierIds[0] : "");
+    setRows(purchase.items.map((item) => ({ mode: "existing", productId: String(item.product_id), productName: "", kind: item.product_kind ?? "ingredient", unit: products.find((product) => product.id === item.product_id)?.unit ?? "", supplierId: item.supplier_id ? String(item.supplier_id) : "", quantity: String(item.quantity), totalCost: String(Math.round(Number(item.line_total) || (Number(item.quantity) * Number(item.unit_cost)))) })));
+    setFormMessage(null);
+    setShowForm(true);
+  }
+
+  async function voidPurchase(purchase: Purchase) {
+    if (!window.confirm(`¿Anular la compra #${purchase.id}? Se revertirá su entrada de inventario y dejará de contar como egreso.`)) return;
+    const response = await fetch(`/api/inventory/purchases/${purchase.id}/void`, { method: "POST" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) { setLoadError(payload?.detail ?? payload?.message ?? "No se pudo anular la compra."); return; }
+    setPurchases((current) => current.map((entry) => entry.id === purchase.id ? payload as Purchase : entry));
+  }
+
   async function registerPurchase() {
     if (!purchaseDate) { setFormMessage("Selecciona la fecha de compra."); return; }
     const items: Array<Record<string, unknown>> = [];
@@ -121,9 +154,9 @@ export default function PurchasesHistory() {
     setSaving(true);
     setFormMessage(null);
     try {
-      const response = await fetch("/api/inventory/purchases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, invoice_id: invoiceId.trim() || null, purchased_at: `${purchaseDate}T12:00:00`, items }) });
+      const response = await fetch(editingPurchaseId ? `/api/inventory/purchases/${editingPurchaseId}` : "/api/inventory/purchases", { method: editingPurchaseId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, invoice_id: invoiceId.trim() || null, purchased_at: `${purchaseDate}T12:00:00`, items }) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) { setFormMessage(payload?.message ?? "No se pudo registrar la compra."); return; }
+      if (!response.ok) { setFormMessage(payload?.detail ?? payload?.message ?? `No se pudo ${editingPurchaseId ? "actualizar" : "registrar"} la compra.`); return; }
       setShowForm(false);
       resetForm();
       setRange({ from: `${purchaseDate.slice(0, 7)}-01`, to: new Date(Number(purchaseDate.slice(0, 4)), Number(purchaseDate.slice(5, 7)), 0).toISOString().slice(0, 10) });
@@ -141,14 +174,14 @@ export default function PurchasesHistory() {
         <DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} />
       </MonthFilter>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del rango seleccionado.</p></div>
+        <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del rango seleccionado; las anuladas no cuentan como egreso.</p></div>
         <button type="button" onClick={() => { setShowForm((value) => !value); setFormMessage(null); }} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Registrar compra</button>
       </div>
 
       {showForm ? (
         <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4 dark:bg-primary/10">
           <div className="mb-4 flex flex-wrap items-end gap-3">
-            <label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">Fecha de compra<input type="date" value={purchaseDate} max={localDateInputValue()} onChange={(event) => setPurchaseDate(event.target.value)} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
+            <h3 className="w-full text-lg font-semibold text-dark dark:text-white">{editingPurchaseId ? `Editar compra #${editingPurchaseId}` : "Registrar compra"}</h3><label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">Fecha de compra<input type="date" value={purchaseDate} max={localDateInputValue()} onChange={(event) => setPurchaseDate(event.target.value)} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
             <label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">ID Factura<input value={invoiceId} maxLength={100} onChange={(event) => setInvoiceId(event.target.value)} placeholder="Código alfanumérico" className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
             <label className="min-w-[220px] flex-1 text-sm font-medium text-dark dark:text-white">Proveedor para todos los productos<select value={sharedSupplierId} onChange={(event) => selectSharedSupplier(event.target.value)} disabled={!useSameSupplier} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark disabled:bg-gray-1 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:disabled:bg-dark-3"><option value="">Sin proveedor</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             <label className="flex items-center gap-2 pb-2 text-sm font-medium text-dark dark:text-white"><input type="checkbox" checked={useSameSupplier} onChange={(event) => changeSharedSupplierEnabled(event.target.checked)} />Usar el mismo proveedor en todas las filas</label>
@@ -179,13 +212,13 @@ export default function PurchasesHistory() {
           </div>
           <button type="button" onClick={addRow} className="mt-3 rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white">+ Agregar producto</button>
           {formMessage ? <p className="mt-3 text-sm font-medium text-red">{formMessage}</p> : null}
-          <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark dark:border-dark-3 dark:text-white">Cancelar</button><button type="button" disabled={saving} onClick={() => void registerPurchase()} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60">{saving ? "Guardando..." : "Registrar compra"}</button></div>
+          <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark dark:border-dark-3 dark:text-white">Cancelar</button><button type="button" disabled={saving} onClick={() => void registerPurchase()} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60">{saving ? "Guardando..." : editingPurchaseId ? "Guardar cambios" : "Registrar compra"}</button></div>
         </div>
       ) : null}
 
       <div className="mb-5 flex flex-wrap gap-3"><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Buscar compras del mes" placeholder="Buscar por proveedor, producto o número" className="min-w-[260px] flex-1 rounded-md border border-stroke px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></div>
       {loadError ? <p role="alert" className="text-red">{loadError}</p> : null}
-      {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[800px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">ID Factura</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th></tr></thead><tbody>{purchases.map((purchase) => { const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at; const purchaseMonth = purchaseDateValue.slice(0, 7); return <tr key={purchase.id} className="border-b border-stroke dark:border-dark-3"><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}</td><td className="px-3 py-3 text-sm text-body">{purchase.invoice_id || "-"}</td><td className="px-3 py-3 text-sm text-body">{date(purchaseDateValue)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => <a key={item.id} href={`/inventory?month=${encodeURIComponent(purchaseMonth)}&purchaseItem=${item.id}${item.product_kind ? `&kind=${item.product_kind}` : ""}`} className="mr-2 inline-block text-primary hover:underline">{item.product_name || `#${item.id}`}</a>)}</td><td className="px-3 py-3 text-right font-semibold text-dark dark:text-white">{money(purchase.total_cost)}</td></tr>; })}</tbody></table></div>}
+      {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[920px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">ID Factura</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th><th className="px-3 py-3 text-right">Acciones</th></tr></thead><tbody>{purchases.map((purchase) => { const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at; const purchaseMonth = purchaseDateValue.slice(0, 7); const isVoid = purchase.status === "void"; return <tr key={purchase.id} className={`border-b border-stroke dark:border-dark-3 ${isVoid ? "bg-gray-100/60 dark:bg-dark-2" : ""}`}><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}{isVoid ? <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs text-red">Anulada</span> : null}</td><td className="px-3 py-3 text-sm text-body">{purchase.invoice_id || "-"}</td><td className="px-3 py-3 text-sm text-body">{date(purchaseDateValue)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => <a key={item.id} href={`/inventory?month=${encodeURIComponent(purchaseMonth)}&purchaseItem=${item.id}${item.product_kind ? `&kind=${item.product_kind}` : ""}`} className="mr-2 inline-block text-primary hover:underline">{item.product_name || `#${item.id}`}</a>)}</td><td className={`px-3 py-3 text-right font-semibold text-dark dark:text-white ${isVoid ? "line-through" : ""}`}>{money(purchase.total_cost)}</td><td className="px-3 py-3 text-right">{!isVoid ? <div className="flex justify-end gap-2"><button type="button" onClick={() => startEdit(purchase)} title={`Editar compra #${purchase.id}`} aria-label={`Editar compra #${purchase.id}`} className="rounded-md border border-primary/40 p-1.5 text-primary hover:bg-primary/10"><FaRegEdit /></button><button type="button" onClick={() => void voidPurchase(purchase)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red hover:bg-red/10">Anular</button></div> : null}</td></tr>; })}</tbody></table></div>}
     </div>
   );
 }

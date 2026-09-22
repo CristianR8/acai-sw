@@ -187,6 +187,10 @@ class PurchaseCreate(BaseModel):
     items: list[PurchaseItemCreate] = Field(min_length=1)
 
 
+class PurchaseUpdate(PurchaseCreate):
+    pass
+
+
 class PurchaseItemOut(BaseModel):
     id: int
     product_id: int
@@ -209,6 +213,7 @@ class PurchaseOut(BaseModel):
     purchased_at: datetime | None
     received_at: datetime | None
     total_cost: Decimal
+    status: str = "manual"
     created_at: datetime
     items: list[PurchaseItemOut]
 
@@ -255,6 +260,10 @@ class FixedExpensePaymentCreate(BaseModel):
     payment_date: date
     amount: Decimal = Field(gt=0)
     expense_type: ExpenseType | None = None
+
+
+class FixedExpensePaymentUpdate(FixedExpensePaymentCreate):
+    pass
 
 
 class ManualExpensePaymentOut(BaseModel):

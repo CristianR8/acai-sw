@@ -588,6 +588,125 @@ def list_purchases(
     return query.all() if month is not None or (from_date and to_date) or history == "all" else query.limit(10).all()
 
 
+def _purchase_month_group(db_session: Session, purchase_date: datetime) -> models.InventoryMonthGroup:
+    period = date(purchase_date.year, purchase_date.month, 1)
+    group = db_session.query(models.InventoryMonthGroup).filter(models.InventoryMonthGroup.period == period).first()
+    if group is None:
+        group = models.InventoryMonthGroup(period=period)
+        db_session.add(group)
+        db_session.flush()
+    return group
+
+
+def _active_supplier_id(db_session: Session, supplier_id: int | None) -> int | None:
+    if supplier_id is None:
+        return None
+    supplier = db_session.query(models.Supplier).filter(
+        models.Supplier.id == supplier_id, models.Supplier.is_active == True  # noqa: E712
+    ).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    return supplier.id
+
+
+def _reverse_purchase_inventory(db_session: Session, purchase: models.Purchase, reason: str) -> None:
+    for item in purchase.items:
+        product = item.product or _get_product(db_session, item.product_id)
+        product.on_hand = _as_decimal(product.on_hand) - _as_decimal(item.quantity)
+        db_session.add(models.StockMovement(
+            product_id=product.id, movement_type="out", quantity=-_as_decimal(item.quantity),
+            unit_cost=item.unit_cost, reason=reason, reference_type="purchase", reference_id=purchase.id,
+        ))
+        db_session.add(product)
+
+
+@router.put("/purchases/{purchase_id}", response_model=schemas.PurchaseOut)
+def update_purchase(purchase_id: int, payload: schemas.PurchaseUpdate, db_session: Session = Depends(db.get_db)):
+    purchase = db_session.query(models.Purchase).options(
+        joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product)
+    ).filter(models.Purchase.id == purchase_id).first()
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Compra no encontrada")
+    if purchase.status == "void":
+        raise HTTPException(status_code=409, detail="No se puede editar una compra anulada")
+    if payload.purchased_at and payload.purchased_at.date() > date.today():
+        raise HTTPException(status_code=400, detail="La fecha de compra no puede ser posterior al día actual")
+    purchase_date = payload.purchased_at or purchase.purchased_at or datetime.utcnow()
+    group = _purchase_month_group(db_session, purchase_date)
+    _reverse_purchase_inventory(db_session, purchase, "purchase edit reversal")
+    purchase.items.clear()
+    purchase.supplier_id = _active_supplier_id(db_session, payload.supplier_id)
+    purchase.invoice_id = (payload.invoice_id or "").strip() or None
+    purchase.purchased_at = purchase_date
+    purchase.received_at = payload.received_at or purchase.received_at
+    total = Decimal("0")
+    supplier_ids: set[int] = ({purchase.supplier_id} if purchase.supplier_id else set())
+    for item in payload.items:
+        if item.product_id is not None:
+            product = _get_product(db_session, item.product_id)
+        else:
+            name = (item.product_name or "").strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Producto requerido")
+            product = _find_product_by_name(db_session, name=name)
+            if product is None:
+                kind = item.product_kind.value if item.product_kind is not None else schemas.InventoryProductKind.material.value
+                unit = item.unit.strip() if item.unit else None
+                if kind == schemas.InventoryProductKind.ingredient.value and not unit:
+                    raise HTTPException(status_code=400, detail="Unidad requerida para ingredientes")
+                from .inventory_costs import reference_cost
+                product = models.InventoryProduct(name=name, kind=kind, unit=unit, is_active=True, cost=reference_cost(name))
+                db_session.add(product)
+                db_session.flush()
+            elif not product.is_active:
+                product.is_active = True
+        supplier_id = _active_supplier_id(db_session, item.supplier_id)
+        if supplier_id is not None:
+            supplier_ids.add(supplier_id)
+            product.supplier_id = supplier_id
+        qty = _as_decimal(item.quantity)
+        unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
+        line_total = (qty * unit_cost).quantize(Decimal("1"))
+        total += line_total
+        purchase.items.append(models.PurchaseItem(
+            product_id=product.id, supplier_id=supplier_id, quantity=qty, unit_cost=unit_cost,
+            line_total=line_total, month_group_id=group.id,
+        ))
+        on_hand_before = _as_decimal(product.on_hand)
+        product.on_hand = on_hand_before + qty
+        if product.on_hand > 0:
+            product.average_cost = ((_as_decimal(product.average_cost) * on_hand_before) + (unit_cost * qty)) / product.on_hand
+        product.last_cost = unit_cost
+        product.is_purchase_registered = True
+        db_session.add(models.StockMovement(
+            product_id=product.id, movement_type="in", quantity=qty, unit_cost=unit_cost,
+            reason="purchase edit", reference_type="purchase", reference_id=purchase.id,
+        ))
+        db_session.add(product)
+    purchase.total_cost = total.quantize(Decimal("1"))
+    if supplier_ids:
+        purchase.supplier_id = supplier_ids.pop() if len(supplier_ids) == 1 else None
+    db_session.commit()
+    db_session.refresh(purchase)
+    return purchase
+
+
+@router.post("/purchases/{purchase_id}/void", response_model=schemas.PurchaseOut)
+def void_purchase(purchase_id: int, db_session: Session = Depends(db.get_db)):
+    purchase = db_session.query(models.Purchase).options(
+        joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product)
+    ).filter(models.Purchase.id == purchase_id).first()
+    if not purchase:
+        raise HTTPException(status_code=404, detail="Compra no encontrada")
+    if purchase.status == "void":
+        raise HTTPException(status_code=409, detail="La compra ya está anulada")
+    _reverse_purchase_inventory(db_session, purchase, "purchase void")
+    purchase.status = "void"
+    db_session.commit()
+    db_session.refresh(purchase)
+    return purchase
+
+
 @router.get("/recipes/{menu_item_id}", response_model=schemas.RecipeOut)
 def get_recipe(menu_item_id: int, db_session: Session = Depends(db.get_db)):
     recipe = db_session.query(models.Recipe).filter(models.Recipe.menu_item_id == menu_item_id).first()
@@ -1032,6 +1151,7 @@ def export_purchases_xlsx(
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product),
             joinedload(models.Purchase.items).joinedload(models.PurchaseItem.supplier),
         )
+        .filter(models.Purchase.status != "void")
         .order_by(models.Purchase.purchased_at.desc(), models.Purchase.id.desc())
     )
     if from_date:

@@ -124,6 +124,7 @@ class Purchase(Base):
     received_at = Column(DateTime(timezone=True), nullable=True)
 
     total_cost = Column(Numeric(14, 4), nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="manual", index=True)  # manual|void
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     supplier = relationship("Supplier", back_populates="purchases")
