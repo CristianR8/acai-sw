@@ -71,6 +71,13 @@ export const NAV_DATA: NavigationSection[] = [
         items: [],
         adminOnly: true,
       },
+      {
+        title: "Pérdidas y ganancias",
+        url: "/profit-loss",
+        icon: Icons.PieChart,
+        items: [],
+        adminOnly: true,
+      },
       // Calendario conservado en el código, temporalmente oculto.
       // {
       //   title: "Calendar",

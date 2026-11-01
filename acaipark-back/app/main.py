@@ -185,7 +185,8 @@ def _ensure_guided_addons() -> None:
         addons = (
             ("Topping", "2000.00"),
             ("Salsa", "3000.00"),
-            ("Café Americano", "5000.00"),
+            ("Café Americano", "4000.00"),
+            ("Torta de chocolate", "16000.00"),
         )
         for name, price in addons:
             item = (
@@ -203,15 +204,19 @@ def _ensure_guided_addons() -> None:
                 db_session.add(
                     models.MenuItem(
                         name=name,
-                        category="Adicionales",
+                        category="Postres" if name == "Torta de chocolate" else "Adicionales",
                         price=price,
-                        description="Adicional listo para servir.",
+                        description=(
+                            "Torta de chocolate sola o con helado, topping o salsa."
+                            if name == "Torta de chocolate"
+                            else "Adicional listo para servir."
+                        ),
                         is_active=True,
                     )
                 )
             else:
                 item.is_active = True
-                if name in {"Topping", "Café Americano"}:
+                if name in {"Topping", "Café Americano", "Torta de chocolate"}:
                     item.price = price
                 if name == "Café Americano":
                     item.name = name

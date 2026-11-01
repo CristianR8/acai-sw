@@ -9,6 +9,7 @@ const ADMIN_ONLY_PATHS = [
   "/personnel",
   "/sales",
   "/cash-closing",
+  "/profit-loss",
   "/inventory/purchases",
   "/expenses",
 ];

@@ -26,9 +26,10 @@ type Purchase = {
 type ExpensePayment = { amount: number | string; payment_date: string; status?: string };
 
 type SalesByProduct = {
-  menu_item_id: number;
+  menu_item_id: number | null;
   name: string;
   category: string;
+  base?: string | null;
   quantity: number | string;
   total: number | string;
 };
@@ -76,13 +77,16 @@ function formatQty(value: unknown) {
   }).format(num);
 }
 
-async function safeJson(response: Response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
+async function fetchRows<T>(url: string): Promise<T[]> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload)) throw new Error("Respuesta inválida");
+  return payload as T[];
 }
+
+type Section = "ventas" | "compras" | "gastos" | "productos más vendidos";
+const SECTIONS: Section[] = ["ventas", "compras", "gastos", "productos más vendidos"];
 
 export default function ControlPanel({ range }: { range: DateRange }) {
   const [sales, setSales] = useState<Sale[]>([]);
@@ -90,50 +94,29 @@ export default function ControlPanel({ range }: { range: DateRange }) {
   const [expenses, setExpenses] = useState<ExpensePayment[]>([]);
   const [topProducts, setTopProducts] = useState<SalesByProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failedSections, setFailedSections] = useState<Section[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadData() {
       setLoading(true);
-      setError(null);
-      try {
-        const [salesRes, purchasesRes, expensesRes, productsRes] =
-          await Promise.all([
-            fetch(`/api/sales?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
-            fetch(`/api/inventory/purchases?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
-            fetch(`/api/expenses/payments?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
-            fetch(`/api/sales/summary/products?from_date=${range.from}&to_date=${range.to}`, { cache: "no-store" }),
-          ]);
+      setFailedSections([]);
+      const results = await Promise.allSettled([
+        fetchRows<Sale>(`/api/sales?from_date=${range.from}&to_date=${range.to}`),
+        fetchRows<Purchase>(`/api/inventory/purchases?from_date=${range.from}&to_date=${range.to}`),
+        fetchRows<ExpensePayment>(`/api/expenses/payments?from_date=${range.from}&to_date=${range.to}`),
+        fetchRows<SalesByProduct>(`/api/sales/summary/products?from_date=${range.from}&to_date=${range.to}`),
+      ]);
+      if (cancelled) return;
 
-        if (![salesRes, purchasesRes, expensesRes, productsRes].every((response) => response.ok)) throw new Error("No se pudo cargar el panel del período seleccionado.");
-        const [salesPayload, purchasesPayload, expensesPayload, productsPayload] =
-          await Promise.all([
-            safeJson(salesRes),
-            safeJson(purchasesRes),
-            safeJson(expensesRes),
-            safeJson(productsRes),
-          ]);
-
-        if (cancelled) return;
-
-        setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
-        setPurchases(Array.isArray(purchasesPayload) ? (purchasesPayload as Purchase[]) : []);
-        setExpenses(Array.isArray(expensesPayload) ? (expensesPayload as ExpensePayment[]) : []);
-        setTopProducts(
-          Array.isArray(productsPayload) ? (productsPayload as SalesByProduct[]) : [],
-        );
-      } catch {
-        if (cancelled) return;
-        setError("No se pudo cargar el panel del período seleccionado.");
-        setSales([]);
-        setPurchases([]);
-        setExpenses([]);
-        setTopProducts([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const [salesResult, purchasesResult, expensesResult, productsResult] = results;
+      setSales(salesResult.status === "fulfilled" ? salesResult.value : []);
+      setPurchases(purchasesResult.status === "fulfilled" ? purchasesResult.value : []);
+      setExpenses(expensesResult.status === "fulfilled" ? expensesResult.value : []);
+      setTopProducts(productsResult.status === "fulfilled" ? productsResult.value : []);
+      setFailedSections(SECTIONS.filter((_, index) => results[index].status === "rejected"));
+      setLoading(false);
     }
 
     loadData();
@@ -142,6 +125,16 @@ export default function ControlPanel({ range }: { range: DateRange }) {
       cancelled = true;
     };
   }, [range]);
+
+  const salesUnavailable = failedSections.includes("ventas");
+  const purchasesUnavailable = failedSections.includes("compras");
+  const expensesUnavailable = failedSections.includes("gastos");
+  const productsUnavailable = failedSections.includes("productos más vendidos");
+  const comparisonUnavailable = salesUnavailable || purchasesUnavailable || expensesUnavailable;
+
+  function amount(value: number, unavailable: boolean) {
+    return loading ? "Cargando..." : unavailable ? "No disponible" : formatMoney(value);
+  }
 
   const totalSales = sales
     .filter((sale) => sale.status !== "void")
@@ -168,13 +161,17 @@ export default function ControlPanel({ range }: { range: DateRange }) {
 
   return (
     <div className="space-y-6">
-      {error ? <p role="alert" className="text-red">{error}</p> : null}
+      {failedSections.length > 0 ? (
+        <p role="alert" className="text-red">
+          No se pudieron cargar: {failedSections.join(", ")}. Los demás datos del período se muestran normalmente.
+        </p>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Ventas del período" value={loading ? "Cargando..." : formatMoney(totalSales)} />
-        <StatCard title="Cortesías del período" value={loading ? "Cargando..." : formatMoney(totalCourtesy)} />
-        <StatCard title="Compras del período" value={loading ? "Cargando..." : formatMoney(totalPurchases)} />
-        <StatCard title="Gastos del período" value={loading ? "Cargando..." : formatMoney(totalExpenses)} />
-        <StatCard title="Ingresos vs egresos" value={loading ? "Cargando..." : `${formatMoney(totalSales)} / ${formatMoney(totalPurchases + totalExpenses)}`} />
+        <StatCard title="Ventas del período" value={amount(totalSales, salesUnavailable)} />
+        <StatCard title="Cortesías del período" value={amount(totalCourtesy, salesUnavailable)} />
+        <StatCard title="Compras del período" value={amount(totalPurchases, purchasesUnavailable)} />
+        <StatCard title="Gastos del período" value={amount(totalExpenses, expensesUnavailable)} />
+        <StatCard title="Ingresos vs egresos" value={loading ? "Cargando..." : comparisonUnavailable ? "No disponible" : `${formatMoney(totalSales)} / ${formatMoney(totalPurchases + totalExpenses)}`} />
       </div>
 
       <section className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
@@ -186,10 +183,10 @@ export default function ControlPanel({ range }: { range: DateRange }) {
 
         </div>
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard title="Efectivo" value={formatMoney(monthlyPayments?.cash_total)} helper={`${range.from} — ${range.to}`} />
-          <StatCard title="Transferencia" value={formatMoney(monthlyPayments?.transfer_total)} helper={`${range.from} — ${range.to}`} />
-          <StatCard title="Datáfono" value={formatMoney(monthlyPayments?.dataphone_total)} helper={`${range.from} — ${range.to}`} />
-          <StatCard title="Total del período" value={formatMoney(monthlyPayments?.total)} helper={loading ? "Cargando..." : `${range.from} — ${range.to}`} />
+          <StatCard title="Efectivo" value={amount(monthlyPayments.cash_total, salesUnavailable)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Transferencia" value={amount(monthlyPayments.transfer_total, salesUnavailable)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Datáfono" value={amount(monthlyPayments.dataphone_total, salesUnavailable)} helper={`${range.from} — ${range.to}`} />
+          <StatCard title="Total del período" value={amount(monthlyPayments.total, salesUnavailable)} helper={loading ? "Cargando..." : `${range.from} — ${range.to}`} />
         </div>
       </section>
 
@@ -198,6 +195,8 @@ export default function ControlPanel({ range }: { range: DateRange }) {
         <p className="mb-3 text-sm text-body">Distribución de los ingresos entre {range.from} y {range.to}.</p>
         {loading ? (
           <p className="text-sm text-body">Cargando gráfica...</p>
+        ) : salesUnavailable ? (
+          <p className="text-sm text-body">No se pudieron cargar los ingresos por medio de pago.</p>
         ) : (
           <DailyPaymentMethodChart
             cash={safeNumber(monthlyPayments?.cash_total)}
@@ -215,6 +214,8 @@ export default function ControlPanel({ range }: { range: DateRange }) {
           <p className="mb-4 text-sm text-body">Ranking por total vendido.</p>
           {loading ? (
             <p className="text-sm text-body">Cargando...</p>
+          ) : productsUnavailable ? (
+            <p className="text-sm text-body">No se pudieron cargar los productos más vendidos.</p>
           ) : topProductsRows.length === 0 ? (
             <p className="text-sm text-body">Sin datos por ahora.</p>
           ) : (
@@ -230,7 +231,7 @@ export default function ControlPanel({ range }: { range: DateRange }) {
               <TableBody>
                 {topProductsRows.map((row) => (
                   <TableRow
-                    key={`${row.menu_item_id}-${row.name}-${row.category}`}
+                    key={`${row.menu_item_id}-${row.name}-${row.category}-${row.base ?? "none"}`}
                     className="transition-colors hover:bg-primary/5"
                   >
                     <TableCell className="font-medium text-black dark:text-white">

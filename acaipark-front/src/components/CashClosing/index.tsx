@@ -149,9 +149,7 @@ export default function CashClosing() {
       </section>
 
       <section className="rounded-xl border bg-white p-6 shadow-sm dark:border-dark-3 dark:bg-gray-dark">
-        <h3 className="text-xl font-bold">Gastos y salidas de caja</h3>
-        <p className="mt-3">Total gastos: <b>{money(data?.expenses_total)}</b></p>
-        <h3 className="mt-6 text-xl font-bold">Conciliación final de caja</h3>
+        <h3 className="text-xl font-bold">Conciliación final de caja</h3>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <p>Base inicial<br /><b>{money(data?.opening_total)}</b></p>
           <p>Efectivo esperado<br /><b>{money(data?.expected_cash)}</b></p>
@@ -163,7 +161,6 @@ export default function CashClosing() {
         <div className="mt-5 flex flex-wrap gap-3">
           <a href={`/api/sales/summary/daily-payment-methods/export?day=${day}`} className="rounded-lg bg-primary px-4 py-2 text-white">Descargar Excel</a>
           <a href={`/api/sales/cash-closing/pdf?day=${day}`} className="rounded-lg border px-4 py-2">Descargar PDF</a>
-          <a href={`/api/sales/pl-statement/export?month=${day.slice(0, 7)}`} className="rounded-lg bg-secondary px-4 py-2 text-white">Estado de Pérdidas y Ganancias (Excel)</a>
         </div>
       </section>
     </div>

@@ -601,7 +601,7 @@ class FactusHealthOut(BaseModel):
 
 
 class SalesByProductOut(BaseModel):
-    menu_item_id: int
+    menu_item_id: int | None
     name: str
     category: str
     base: str | None = None
@@ -727,3 +727,38 @@ class LoyaltyCardOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ProfitLossRowOut(BaseModel):
+    excel_row: int
+    concept: str
+    column: str
+    amount: Decimal
+    percentage: Decimal | None
+    formula: str | None = None
+    total: bool = False
+    automatic: bool = False
+
+
+class ProfitLossExpenseGroupOut(BaseModel):
+    name: str
+    category: str
+    excel_row: int
+    target_concept: str = ""
+    amount: Decimal
+    count: int
+    needs_classification: bool = False
+
+
+class ProfitLossStatementOut(BaseModel):
+    month: str
+    rows: list[ProfitLossRowOut]
+    sales_count: int
+    purchase_count: int
+    expense_count: int
+    expenses_total: Decimal
+    expenses_included: Decimal
+    unclassified_expense_count: int
+    expense_breakdown: list[ProfitLossExpenseGroupOut]
+    provisional: bool
+    warnings: list[str]

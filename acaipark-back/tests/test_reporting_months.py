@@ -47,14 +47,14 @@ class ReportingMonthsTests(unittest.TestCase):
             self.session.flush()
             self.session.add(models.SaleItem(sale_id=sale.id, menu_item_id=product.id, name='Producto', category='Otros', quantity=1, unit_price=10, tax_rate=0, line_subtotal=10, line_tax=0, line_total=10))
         self.session.commit()
-        self.assertEqual(len(sales.list_sales('2026-09', self.session)), 205)
-        self.assertEqual(sales.sales_by_product('2026-09', self.session)[0].total, Decimal(2050))
+        self.assertEqual(len(sales.list_sales('2026-09', db_session=self.session)), 205)
+        self.assertEqual(sales.sales_by_product('2026-09', db_session=self.session)[0].total, Decimal(2050))
         self.assertEqual(sales.sales_by_table('2026-09', self.session)[0].total, Decimal(2050))
-        rows = sales.sales_adjustments_by_month('2026-09', self.session)
+        rows = sales.sales_adjustments_by_month('2026-09', db_session=self.session)
         self.assertEqual([(row.year, row.month) for row in rows], [(2026, 9)])
-        self.assertEqual(sales.list_sales('2025-09', self.session), [])
+        self.assertEqual(sales.list_sales('2025-09', db_session=self.session), [])
         with patch('app.sales.month_bounds', return_value=month_bounds('2026-09')):
-            self.assertEqual(len(sales.list_sales(None, self.session)), 205)
+            self.assertEqual(len(sales.list_sales(None, db_session=self.session)), 205)
 
     def test_purchase_month_filter_search_and_no_ten_row_limit(self):
         supplier = models.Supplier(name='Proveedor especial')

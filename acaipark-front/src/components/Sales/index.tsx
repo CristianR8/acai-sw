@@ -13,7 +13,7 @@ import DateRangeFilter, { currentMonthRange, type DateRange } from "@/components
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -22,7 +22,7 @@ const COLOMBIA_TZ = "America/Bogota";
 
 type SaleItem = {
   id: number;
-  menu_item_id: number;
+  menu_item_id: number | null;
   name: string;
   category: string;
   quantity: number | string;
@@ -54,7 +54,7 @@ type Sale = {
 };
 
 type SalesByProduct = {
-  menu_item_id: number;
+  menu_item_id: number | null;
   name: string;
   category: string;
   base?: string | null;
@@ -156,13 +156,15 @@ function formatMonthLabel(year: unknown, month: unknown) {
   return `${monthNames[parsedMonth - 1]} ${parsedYear}`;
 }
 
-async function safeJson(response: Response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
+async function fetchRows<T>(url: string, signal: AbortSignal): Promise<T[]> {
+  const response = await fetch(url, { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload)) throw new Error("Respuesta inválida");
+  return payload as T[];
 }
+
+type LoadErrors = Partial<Record<"sales" | "products" | "adjustments", string>>;
 
 function PaginationControls({
   page,
@@ -231,7 +233,8 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
   const [salesByProductPage, setSalesByProductPage] = useState(1);
   const [adjustmentsMonthlyPage, setAdjustmentsMonthlyPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errors, setErrors] = useState<LoadErrors>({});
+  const requestRef = useRef<AbortController | null>(null);
 
   const withPeriodParam = useCallback(
     (basePath: string) => {
@@ -241,78 +244,40 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
   );
 
   const loadSalesData = useCallback(async () => {
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setLoading(true);
-    setErrorMessage(null);
+    setErrors({});
     setSales([]);
     setSalesByProduct([]);
     setSalesAdjustmentsByMonth([]);
-    try {
-      const [
-        salesResponse,
-        productsResponse,
-        adjustmentsMonthlyResponse,
-      ] = await Promise.all([
-        fetch(withPeriodParam("/api/sales"), {
-          cache: "no-store",
-        }),
-        fetch(
-          withPeriodParam("/api/sales/summary/products"),
-          {
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          withPeriodParam(
-            "/api/sales/summary/adjustments/monthly",
-          ),
-          { cache: "no-store" },
-        ),
-      ]);
+    const [salesResult, productsResult, adjustmentsResult] = await Promise.allSettled([
+      fetchRows<Sale>(withPeriodParam("/api/sales"), controller.signal),
+      fetchRows<SalesByProduct>(withPeriodParam("/api/sales/summary/products"), controller.signal),
+      fetchRows<SalesAdjustmentsByMonth>(withPeriodParam("/api/sales/summary/adjustments/monthly"), controller.signal),
+    ]);
+    if (controller.signal.aborted) return;
 
-      const [
-        salesPayload,
-        productsPayload,
-        adjustmentsMonthlyPayload,
-      ] = await Promise.all([
-        safeJson(salesResponse),
-        safeJson(productsResponse),
-        safeJson(adjustmentsMonthlyResponse),
-      ]);
-
-      if (!salesResponse.ok) {
-        throw new Error(
-          (salesPayload as any)?.message ||
-            "No se pudo cargar el historial de ventas",
-        );
-      }
-      setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
-      setSalesByProduct(
-        productsResponse.ok && Array.isArray(productsPayload)
-          ? (productsPayload as SalesByProduct[])
-          : [],
-      );
-      setSalesAdjustmentsByMonth(
-        adjustmentsMonthlyResponse.ok && Array.isArray(adjustmentsMonthlyPayload)
-          ? (adjustmentsMonthlyPayload as SalesAdjustmentsByMonth[])
-          : [],
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "No se pudo cargar ventas";
-      setErrorMessage(message);
-      setSales([]);
-      setSalesByProduct([]);
-      setSalesAdjustmentsByMonth([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    withPeriodParam,
-  ]);
+    const nextErrors: LoadErrors = {};
+    if (salesResult.status === "fulfilled") setSales(salesResult.value);
+    else nextErrors.sales = "No se pudo cargar el historial de ventas del período seleccionado.";
+    if (productsResult.status === "fulfilled") setSalesByProduct(productsResult.value);
+    else nextErrors.products = "No se pudieron cargar las ventas por producto del período seleccionado.";
+    if (adjustmentsResult.status === "fulfilled") setSalesAdjustmentsByMonth(adjustmentsResult.value);
+    else nextErrors.adjustments = "No se pudieron cargar las cortesías y descuentos del período seleccionado.";
+    setErrors(nextErrors);
+    setLoading(false);
+  }, [withPeriodParam]);
 
   useEffect(() => {
-    loadSalesData();
+    void loadSalesData();
+    return () => requestRef.current?.abort();
   }, [loadSalesData]);
+
+  function salesValue(value: string | number) {
+    return loading ? "Cargando..." : errors.sales ? "No disponible" : value;
+  }
 
   const activeSales = useMemo(
     () => sales.filter((sale) => sale.status !== "void"),
@@ -396,25 +361,25 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-body text-sm">Ventas registradas</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
-            {totalSalesCount}
+            {salesValue(totalSalesCount)}
           </p>
         </div>
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-body text-sm">Total vendido</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
-            {formatMoney(totalSalesValue)}
+            {salesValue(formatMoney(totalSalesValue))}
           </p>
         </div>
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-body text-sm">Cortesías aplicadas</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
-            {formatCount(totalCourtesyApplied)}
+            {salesValue(formatCount(totalCourtesyApplied))}
           </p>
         </div>
         <div className="rounded-sm border border-stroke bg-white px-5 py-4 shadow-default transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-body text-sm">Descuentos aplicados</p>
           <p className="mt-2 text-2xl font-semibold text-black dark:text-white">
-            {formatCount(totalDiscountApplied)}
+            {salesValue(formatCount(totalDiscountApplied))}
           </p>
         </div>
       </div>
@@ -442,8 +407,8 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
 
         {loading ? (
           <p className="text-body text-sm">Cargando ventas...</p>
-        ) : errorMessage ? (
-          <p className="text-danger text-sm">{errorMessage}</p>
+        ) : errors.sales ? (
+          <p role="alert" className="text-red text-sm">{errors.sales}</p>
         ) : sales.length === 0 ? (
           <p className="text-body text-sm">No hay ventas registradas.</p>
         ) : (
@@ -517,7 +482,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
             </TableBody>
           </Table>
         )}
-        {!loading && !errorMessage ? (
+        {!loading && !errors.sales ? (
           <PaginationControls
             page={salesHistoryPage}
             totalPages={salesHistoryTotalPages}
@@ -542,6 +507,8 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
           </div>
           {loading ? (
             <p className="text-body text-sm">Cargando resumen...</p>
+          ) : errors.products ? (
+            <p role="alert" className="text-red text-sm">{errors.products}</p>
           ) : salesByProduct.length === 0 ? (
             <p className="text-body text-sm">No hay datos para mostrar.</p>
           ) : (
@@ -578,7 +545,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
               </TableBody>
             </Table>
           )}
-          {!loading ? (
+          {!loading && !errors.products ? (
             <PaginationControls
               page={salesByProductPage}
               totalPages={salesByProductTotalPages}
@@ -603,6 +570,8 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
           </div>
           {loading ? (
             <p className="text-body text-sm">Cargando resumen...</p>
+          ) : errors.adjustments ? (
+            <p role="alert" className="text-red text-sm">{errors.adjustments}</p>
           ) : salesAdjustmentsByMonth.length === 0 ? (
             <p className="text-body text-sm">No hay datos para mostrar.</p>
           ) : (
@@ -627,7 +596,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
               </TableBody>
             </Table>
           )}
-          {!loading ? (
+          {!loading && !errors.adjustments ? (
             <PaginationControls
               page={adjustmentsMonthlyPage}
               totalPages={adjustmentsMonthlyTotalPages}

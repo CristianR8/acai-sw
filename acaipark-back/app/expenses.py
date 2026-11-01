@@ -16,6 +16,8 @@ DEFAULT_FIXED_EXPENSES = [
     ("Nómina de cajero", "Nómina"),
     ("Personal de seguridad", "Nómina"),
     ("Póliza de inventario", "Seguros"),
+    ("Domicilio", "Transporte"),
+    ("Flete: compra de productos", "Transporte"),
     ("Otros", "Otros"),
 ]
 

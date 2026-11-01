@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from . import db, models, schemas
 from .reporting_periods import month_bounds
+from .profit_loss import build_statement
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 COLOMBIA_TZ = ZoneInfo("America/Bogota")
@@ -46,6 +47,8 @@ def _period_start(period: str | None) -> datetime | None:
 @router.get("", response_model=list[schemas.SaleOut])
 def list_sales(period: str | None = None, from_date: date | None = None, to_date: date | None = None, db_session: Session = Depends(db.get_db)):
     query = db_session.query(models.Sale)
+    if bool(from_date) != bool(to_date):
+        raise HTTPException(status_code=400, detail="Debes indicar Desde y Hasta")
     if from_date and to_date:
         if from_date > to_date: raise HTTPException(status_code=400, detail="La fecha Desde no puede ser posterior a Hasta")
         start = datetime.combine(from_date, time.min, tzinfo=COLOMBIA_TZ)
@@ -189,16 +192,6 @@ def export_daily_payment_methods_xlsx(
         )
 
     totals = _daily_payment_summary(day, db_session)
-    daily_expenses = (
-        db_session.query(models.FixedExpensePayment)
-        .join(models.FixedExpense)
-        .filter(
-            models.FixedExpensePayment.status == "manual",
-            models.FixedExpensePayment.due_date == day,
-        )
-        .order_by(models.FixedExpense.name.asc())
-        .all()
-    )
     openings = db_session.query(models.CashDrawerOpening).filter(
         models.CashDrawerOpening.business_date == day,
     ).all()
@@ -247,20 +240,7 @@ def export_daily_payment_methods_xlsx(
     cells(7, ["Datáfono / tarjetas", "Vouchers / lote", float(totals["dataphone"])], 4)
     cells(8, ["Transferencias", "Bancos / billeteras", float(totals["transfer"])], 4)
     cells(9, ["TOTAL VENTAS REGISTRADAS", "", "=SUM(F6:F8)"], 4, True)
-    expenses_header_row = cash_total_row + 2
-    section(expenses_header_row, "GASTOS Y SALIDAS DE CAJA")
-    cells(expenses_header_row + 1, ["Gasto", "", "", "Concepto / Ref", "", "Monto ($)"], total=True)
-    row = expenses_header_row + 2
-    expenses_first_row = row
-    for expense in daily_expenses:
-        cells(row, [expense.fixed_expense.name, "", "", expense.concept or expense.fixed_expense.category or "", "", float(expense.amount)])
-        row += 1
-    if not daily_expenses:
-        cells(row, ["Sin gastos registrados", "", "", "", "", 0])
-        row += 1
-    expense_total_row = row
-    cells(row, ["TOTAL GASTOS CAJA", "", "", "", "", f"=SUM(F{expenses_first_row}:F{row-1})"], total=True)
-    row += 2
+    row = cash_total_row + 2
     section(row, "CONCILIACIÓN FINAL DE CAJA")
     def reconciliation(offset, label, value, total=False):
         r = row + offset
@@ -269,7 +249,7 @@ def export_daily_payment_methods_xlsx(
         cells(r, [value], 6, total)
     reconciliation(1, "Base Inicial (aperturas registradas del día)", float(opening_total) if openings else None)
     reconciliation(2, "Ventas Efectivo", "=F6")
-    reconciliation(3, "Gastos registrados del día", f"=F{expense_total_row}")
+    reconciliation(3, "Gastos registrados del día", float(closing_data.expenses_total))
     reconciliation(4, "Efectivo Esperado en Caja (= Base Inicial + Ventas Efectivo - Gastos)", f'=IF(F{row+1}="","",F{row+1}+F{row+2}-F{row+3})', True)
     reconciliation(5, "Efectivo Real en Caja (conteo físico al cierre)", f"=C{cash_total_row}")
     reconciliation(6, "DIFERENCIA DE CAJA (Real - Esperado)", f'=IF(OR(F{row+5}="",F{row+4}=""),"",F{row+5}-F{row+4})', True)
@@ -308,17 +288,9 @@ def export_daily_payment_methods_xlsx(
     )
 
 
-_PYG_CATEGORY_ROW = {
-    "local": "arriendo",
-    "nomina": "nomina",
-    "servicios": "servicios",
-    "seguros": "seguros",
-}
-
-
-def _norm_key(value: str | None) -> str:
-    text = (value or "").strip().casefold()
-    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+@router.get("/pl-statement", response_model=schemas.ProfitLossStatementOut)
+def get_pl_statement(month: str, db_session: Session = Depends(db.get_db)):
+    return build_statement(month, db_session)
 
 
 @router.get("/pl-statement.xlsx")
@@ -333,39 +305,8 @@ def export_pl_statement_xlsx(
             status_code=501,
             detail="Exportar a Excel requiere `openpyxl` instalado en el backend",
         )
-    if not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise HTTPException(status_code=400, detail="El parametro month debe tener el formato YYYY-MM")
-    start, end = month_bounds(month)
-
-    ventas = db_session.query(func.coalesce(func.sum(models.Sale.total), 0)).filter(
-        models.Sale.created_at >= start,
-        models.Sale.created_at < end,
-        models.Sale.status == "active",
-    ).scalar() or Decimal("0")
-
-    purchase_date = func.coalesce(models.Purchase.purchased_at, models.Purchase.received_at, models.Purchase.created_at)
-    compras = db_session.query(func.coalesce(func.sum(models.PurchaseItem.line_total), 0)).join(
-        models.Purchase,
-        models.PurchaseItem.purchase_id == models.Purchase.id,
-    ).filter(
-        purchase_date >= start,
-        purchase_date < end,
-        models.Purchase.status != "void",
-    ).scalar() or Decimal("0")
-
-    expenses_by_category_rows = db_session.query(
-        models.FixedExpense.category,
-        func.coalesce(func.sum(models.FixedExpensePayment.amount), 0),
-    ).join(models.FixedExpense).filter(
-        models.FixedExpensePayment.status == "manual",
-        models.FixedExpensePayment.due_date >= start.date(),
-        models.FixedExpensePayment.due_date < end.date(),
-    ).group_by(models.FixedExpense.category).all()
-    expenses_by_category = {_norm_key(category): total for category, total in expenses_by_category_rows}
-    expenses_by_row = {
-        row: float(expenses_by_category.get(category) or 0)
-        for category, row in _PYG_CATEGORY_ROW.items()
-    }
+    statement = build_statement(month, db_session)
+    start, _ = month_bounds(month)
 
     workbook = openpyxl.Workbook()
     sheet = workbook.active
@@ -404,7 +345,7 @@ def export_pl_statement_xlsx(
     def write_row(row: int, label: str, col: str, value, kind: str = "line", auto: bool = False) -> None:
         label_cell = sheet.cell(row, 2, label)
         value_cell = sheet.cell(row, 3 if col == "C" else 4, value)
-        percent_cell = sheet.cell(row, 5, f"={col}{row}/$D$5")
+        percent_cell = sheet.cell(row, 5, f'=IF($D$5=0,"",{col}{row}/$D$5)')
         for cell in (label_cell, value_cell, percent_cell):
             cell.border = border
         value_cell.number_format = money_format
@@ -416,41 +357,24 @@ def export_pl_statement_xlsx(
         else:
             value_cell.fill = auto_fill if auto else editable_fill
 
-    write_row(5, "Ingresos Operacionales (Ventas Totales)", "D", float(ventas), kind="total", auto=True)
-    write_row(6, "(-) Costo de Ventas", "D", "=C7+C8-C9", kind="total")
-    write_row(7, "  Inventario inicial", "C", 0)
-    write_row(8, "  (+) Compras", "C", float(compras), auto=True)
-    write_row(9, "  (-) Inventario final", "C", 0)
-    write_row(10, "(=) UTILIDAD BRUTA", "D", "=D5-D6", kind="total")
-    write_row(12, "(-) Gastos Operacionales Variables", "D", "=C13+C14+C15+C16", kind="total")
-    write_row(13, "  Desechables y empaques", "C", 0)
-    write_row(14, "  Comisiones por medios de pago (datafono)", "C", 0)
-    write_row(15, "  Fletes y domicilios", "C", 0)
-    write_row(16, "  Otros gastos operacionales variables", "C", 0)
-    write_row(17, "(=) MARGEN DE CONTRIBUCIÓN", "D", "=D10-D12", kind="total")
-    write_row(19, "(-) Gastos Operacionales Fijos", "D", "=C20+C21+C22+C23+C24", kind="total")
-    write_row(20, "  Arriendo", "C", expenses_by_row.get("arriendo", 0.0), auto=True)
-    write_row(21, "  Nómina", "C", expenses_by_row.get("nomina", 0.0), auto=True)
-    write_row(22, "  Servicios públicos", "C", expenses_by_row.get("servicios", 0.0), auto=True)
-    write_row(23, "  Marketing y publicidad", "C", 0)
-    write_row(24, "  Seguros", "C", expenses_by_row.get("seguros", 0.0), auto=True)
-    write_row(25, "(=) UTILIDAD OPERATIVA (EBITDA)", "D", "=D17-D19", kind="total")
-    write_row(27, "(-) Imprevistos y Mantenimiento", "C", 0)
-    write_row(28, "(=) UTILIDAD ANTES DE IMPUESTOS", "D", "=D25-C27", kind="total")
-    write_row(30, "(-) Impuesto / Monotributo / Otros", "C", 0)
-    write_row(31, "(=) UTILIDAD NETA FINAL", "D", "=D28-C30", kind="total")
+    for row in statement.rows:
+        write_row(
+            row.excel_row, row.concept, row.column,
+            row.formula if row.formula else float(row.amount),
+            kind="total" if row.total else "line", auto=row.automatic,
+        )
 
     note_row = 33
     sheet.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=5)
     note = sheet.cell(note_row, 2)
     note.value = (
-        "Nota: Ventas, Compras y gastos mapeados (Arriendo, Nómina, Servicios, Seguros) se calcularon "
-        "automáticamente desde el sistema para el periodo. Las celdas restantes son editables y las "
-        "fórmulas de subtotales y % sobre ventas se recalculan solas."
+        "Todos los gastos registrados del período se incluyen una sola vez. "
+        "Consulta su asignación y la conciliación en la hoja Control de gastos. "
+        + " ".join(statement.warnings)
     )
     note.font = styles.Font(italic=True, size=9, color="777777")
     note.alignment = styles.Alignment(wrap_text=True, vertical="top")
-    sheet.row_dimensions[note_row].height = 40
+    sheet.row_dimensions[note_row].height = max(60, 12 * (len(note.value) // 95 + 2))
 
     for col, width in {"B": 52, "C": 15, "D": 15, "E": 13}.items():
         sheet.column_dimensions[col].width = width
@@ -463,6 +387,34 @@ def export_pl_statement_xlsx(
     sheet.page_setup.fitToHeight = 0
     sheet.print_options.horizontalCentered = True
     sheet.print_area = f"B2:E{note_row}"
+
+    control = workbook.create_sheet("Control de gastos")
+    control.append(["Conciliación de gastos", month])
+    control.append(["Gastos registrados", float(statement.expenses_total)])
+    control.append(["Gastos incluidos en PyG", float(statement.expenses_included)])
+    control.append(["Diferencia", "=B2-B3"])
+    control.append(["Cantidad de registros", statement.expense_count])
+    control.append([])
+    control.append(["Gasto", "Categoría", "Renglón del PyG", "Registros", "Importe (COP)", "Clasificación"])
+    for group in statement.expense_breakdown:
+        control.append([
+            group.name, group.category, group.target_concept, group.count,
+            float(group.amount), "Revisar clasificación" if group.needs_classification else "Identificada",
+        ])
+    for cell in control[7]:
+        cell.fill = styles.PatternFill("solid", fgColor=dark_green)
+        cell.font = styles.Font(bold=True, color="FFFFFF")
+    for row in control.iter_rows(min_row=8):
+        row[4].number_format = money_format
+        for cell in row:
+            cell.alignment = styles.Alignment(vertical="top", wrap_text=True)
+    for row in (2, 3, 4):
+        control.cell(row, 2).number_format = money_format
+    for column, width in {"A": 34, "B": 22, "C": 58, "D": 12, "E": 20, "F": 24}.items():
+        control.column_dimensions[column].width = width
+    control.freeze_panes = "A8"
+    control.auto_filter.ref = f"A7:F{max(7, control.max_row)}"
+    control.sheet_view.showGridLines = False
 
     output = BytesIO()
     workbook.save(output)
@@ -675,8 +627,17 @@ def sales_adjustments_by_month(
     else:
         end_date = None
 
-    year_expr = func.extract("year", models.Sale.created_at)
-    month_expr = func.extract("month", models.Sale.created_at)
+    reporting_time = models.Sale.created_at
+    dialect = db_session.get_bind().dialect.name
+    if dialect == "postgresql":
+        reporting_time = func.timezone("America/Bogota", reporting_time)
+    if dialect == "sqlite":
+        # SQLite strftime() rounds 23:59:59.999999 into the following day.
+        year_expr = func.substr(reporting_time, 1, 4)
+        month_expr = func.substr(reporting_time, 6, 2)
+    else:
+        year_expr = func.extract("year", reporting_time)
+        month_expr = func.extract("month", reporting_time)
     query = (
         db_session.query(year_expr.label("year"), month_expr.label("month"), courtesy_count, discount_count)
         .select_from(models.Sale)
@@ -712,16 +673,6 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
     except Exception:
         raise HTTPException(status_code=501, detail="Exportar a PDF requiere `reportlab` instalado en el backend")
     closing = _cash_closing(day, db_session)
-    daily_expenses = (
-        db_session.query(models.FixedExpensePayment)
-        .join(models.FixedExpense)
-        .filter(
-            models.FixedExpensePayment.status == "manual",
-            models.FixedExpensePayment.due_date == day,
-        )
-        .order_by(models.FixedExpense.name.asc(), models.FixedExpensePayment.id.asc())
-        .all()
-    )
     page_w, page_h = A4
     left, right = 42, page_w - 42
     content_w = right - left
@@ -823,17 +774,6 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
         text(f"Datáfono:  $ {closing.dataphone_total:,.0f}", gap=10)
         text(f"Transferencias:  $ {closing.transfer_total:,.0f}", gap=10)
         row("Total ventas registradas", f"$ {closing.total:,.0f}", dark_blue, white, size=10)
-
-        # ---- Gastos y salidas de caja ----
-        section("GASTOS Y SALIDAS DE CAJA", amber)
-        if daily_expenses:
-            for index, expense in enumerate(daily_expenses, 1):
-                concept = expense.concept or expense.fixed_expense.category or "Sin concepto"
-                text(f"{index}. {expense.fixed_expense.name}", bold=True, gap=10)
-                text(f"      Concepto / Ref: {concept}      Monto: $ {Decimal(expense.amount):,.0f}", gap=10)
-        else:
-            text("Sin gastos registrados")
-        row("TOTAL GASTOS CAJA", f"$ {closing.expenses_total:,.0f}", light_red, red, size=10)
 
         # ---- Conciliación final ----
         section("CONCILIACIÓN FINAL DE CAJA", dark_blue)
