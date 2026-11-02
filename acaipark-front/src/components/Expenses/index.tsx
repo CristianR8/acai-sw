@@ -2,6 +2,7 @@
 
 import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
 import DateRangeFilter, { currentMonthRange } from "@/components/DateRangeFilter";
+import ExpenseSpendingChart from "@/components/Expenses/expense-spending-chart";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { FaRegEdit } from "react-icons/fa";
 
@@ -59,6 +60,7 @@ export default function Expenses() {
   const [saving, setSaving] = useState(false);
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [month, setMonth] = useState(currentMonth);
   const [range, setRange] = useState(currentMonthRange);
 
@@ -127,6 +129,7 @@ export default function Expenses() {
     setPayments((current) =>
       current.map((entry) => (entry.id === payment.id ? (payload as ExpensePayment) : entry)),
     );
+    setReloadToken((value) => value + 1);
     setMessage("Compra anulada correctamente.");
   }
 
@@ -162,6 +165,7 @@ export default function Expenses() {
     const targetMonth = `${year}-${payMonth}`;
     setMonth(targetMonth);
     setRange({ from: `${targetMonth}-01`, to: monthLastDay(targetMonth) });
+    setReloadToken((value) => value + 1);
     cancelEdit();
     setMessage(editingPaymentId ? "Gasto actualizado correctamente." : "Gasto registrado correctamente.");
   }
@@ -212,6 +216,8 @@ export default function Expenses() {
           </div>
         </div>
       </section>
+
+      <ExpenseSpendingChart range={range} reloadToken={reloadToken} />
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <div className="mb-5">
