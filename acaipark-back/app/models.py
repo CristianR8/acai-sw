@@ -167,6 +167,10 @@ class PurchaseItem(Base):
     supplier = relationship("Supplier")
 
     @property
+    def supplier_name(self) -> str | None:
+        return self.supplier.name if self.supplier else None
+
+    @property
     def product_name(self) -> str | None:
         return self.product.name if self.product else None
 

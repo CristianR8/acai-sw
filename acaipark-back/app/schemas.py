@@ -197,6 +197,7 @@ class PurchaseItemOut(BaseModel):
     product_name: str | None
     product_kind: str | None
     supplier_id: int | None
+    supplier_name: str | None = None
     quantity: Decimal
     unit_cost: Decimal
     line_total: Decimal

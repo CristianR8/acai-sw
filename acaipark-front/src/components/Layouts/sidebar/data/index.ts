@@ -48,6 +48,7 @@ export const NAV_DATA: NavigationSection[] = [
         items: [
           { title: "Compras", url: "/inventory/purchases" },
           { title: "Gastos", url: "/expenses" },
+          { title: "Informe de gastos", url: "/expenses/report" },
         ],
       },
       {

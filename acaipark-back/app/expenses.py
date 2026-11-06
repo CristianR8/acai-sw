@@ -13,6 +13,7 @@ DEFAULT_FIXED_EXPENSES = [
     ("Servicio de agua", "Servicios"),
     ("Servicio de gas", "Servicios"),
     ("Internet", "Servicios"),
+    ("Jardinería", "Servicios"),
     ("Nómina de cajero", "Nómina"),
     ("Personal de seguridad", "Nómina"),
     ("Póliza de inventario", "Seguros"),

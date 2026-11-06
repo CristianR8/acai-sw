@@ -192,6 +192,16 @@ def export_daily_payment_methods_xlsx(
         )
 
     totals = _daily_payment_summary(day, db_session)
+    daily_expenses = (
+        db_session.query(models.FixedExpensePayment)
+        .outerjoin(models.FixedExpense)
+        .filter(
+            models.FixedExpensePayment.status == "manual",
+            models.FixedExpensePayment.due_date == day,
+        )
+        .order_by(models.FixedExpense.name.asc(), models.FixedExpensePayment.id.asc())
+        .all()
+    )
     openings = db_session.query(models.CashDrawerOpening).filter(
         models.CashDrawerOpening.business_date == day,
     ).all()
@@ -240,7 +250,30 @@ def export_daily_payment_methods_xlsx(
     cells(7, ["Datáfono / tarjetas", "Vouchers / lote", float(totals["dataphone"])], 4)
     cells(8, ["Transferencias", "Bancos / billeteras", float(totals["transfer"])], 4)
     cells(9, ["TOTAL VENTAS REGISTRADAS", "", "=SUM(F6:F8)"], 4, True)
-    row = cash_total_row + 2
+    expenses_header_row = cash_total_row + 2
+    section(expenses_header_row, "GASTOS Y SALIDAS DE CAJA")
+    cells(expenses_header_row + 1, ["Gasto", "", "", "Concepto / Ref", "", "Monto ($)"], total=True)
+    sheet.merge_cells(start_row=expenses_header_row + 1, start_column=1, end_row=expenses_header_row + 1, end_column=3)
+    sheet.merge_cells(start_row=expenses_header_row + 1, start_column=4, end_row=expenses_header_row + 1, end_column=5)
+    row = expenses_header_row + 2
+    expenses_first_row = row
+    for expense in daily_expenses:
+        catalog_entry = expense.fixed_expense
+        cells(row, [
+            catalog_entry.name if catalog_entry else f"Gasto #{expense.fixed_expense_id}", "", "",
+            expense.concept or (catalog_entry.category if catalog_entry else "") or "", "", float(expense.amount),
+        ])
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        sheet.merge_cells(start_row=row, start_column=4, end_row=row, end_column=5)
+        row += 1
+    if not daily_expenses:
+        cells(row, ["Sin gastos registrados", "", "", "", "", 0])
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+        row += 1
+    expense_total_row = row
+    cells(row, ["TOTAL GASTOS CAJA", "", "", "", "", f"=SUM(F{expenses_first_row}:F{row - 1})"], total=True)
+    sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+    row += 2
     section(row, "CONCILIACIÓN FINAL DE CAJA")
     def reconciliation(offset, label, value, total=False):
         r = row + offset
@@ -249,7 +282,7 @@ def export_daily_payment_methods_xlsx(
         cells(r, [value], 6, total)
     reconciliation(1, "Base Inicial (aperturas registradas del día)", float(opening_total) if openings else None)
     reconciliation(2, "Ventas Efectivo", "=F6")
-    reconciliation(3, "Gastos registrados del día", float(closing_data.expenses_total))
+    reconciliation(3, "Gastos registrados del día", f"=F{expense_total_row}")
     reconciliation(4, "Efectivo Esperado en Caja (= Base Inicial + Ventas Efectivo - Gastos)", f'=IF(F{row+1}="","",F{row+1}+F{row+2}-F{row+3})', True)
     reconciliation(5, "Efectivo Real en Caja (conteo físico al cierre)", f"=C{cash_total_row}")
     reconciliation(6, "DIFERENCIA DE CAJA (Real - Esperado)", f'=IF(OR(F{row+5}="",F{row+4}=""),"",F{row+5}-F{row+4})', True)

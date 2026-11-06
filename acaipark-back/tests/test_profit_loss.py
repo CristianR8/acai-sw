@@ -116,7 +116,7 @@ class ProfitLossTests(unittest.TestCase):
             for path in ['/sales/pl-statement', '/sales/pl-statement.xlsx']:
                 self.assertEqual(self.client.get(path, params={'month': month}).status_code, 400)
 
-    def test_cash_closing_keeps_reconciliation_without_expense_section(self):
+    def test_cash_closing_keeps_expense_detail_and_reconciliation(self):
         day = date(2026, 10, 15)
         closing = sales.get_cash_closing(day, self.session)
         self.assertEqual(closing.cash_total, 1000000)
@@ -124,13 +124,31 @@ class ProfitLossTests(unittest.TestCase):
         self.assertEqual(closing.expected_cash, 863000)
         sheet = load_workbook(BytesIO(sales.export_daily_payment_methods_xlsx(day, self.session).body)).active
         labels = [str(cell.value) for row in sheet for cell in row]
-        self.assertNotIn('GASTOS Y SALIDAS DE CAJA', labels)
+        self.assertIn('GASTOS Y SALIDAS DE CAJA', labels)
         for label in ['EFECTIVO RECIBIDO (BILLETES Y MONEDAS)', 'RESUMEN DE VENTAS Y MEDIOS DE PAGO', 'CONCILIACIÓN FINAL DE CAJA', 'OBSERVACIONES / NOVEDADES DEL TURNO']:
             self.assertIn(label, labels)
         expense_row = next(row for row in sheet if row[0].value == 'Gastos registrados del día')
-        self.assertEqual(expense_row[5].value, 137000)
+        section_row = next(row[0].row for row in sheet if row[0].value == 'GASTOS Y SALIDAS DE CAJA')
+        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL GASTOS CAJA')
+        detail = list(sheet.iter_rows(min_row=section_row + 2, max_row=total_row - 1))
+        self.assertEqual(len(detail), 6)
+        self.assertEqual(sum(Decimal(str(row[5].value)) for row in detail), closing.expenses_total)
+        self.assertNotIn('Gasto 6', [row[0].value for row in detail])
+        self.assertNotIn('Gasto 7', [row[0].value for row in detail])
+        self.assertEqual(sheet.cell(total_row, 6).value, f'=SUM(F{section_row + 2}:F{total_row - 1})')
+        self.assertEqual(expense_row[5].value, f'=F{total_row}')
+        self.assertGreater(next(row[0].row for row in sheet if row[0].value == 'CONCILIACIÓN FINAL DE CAJA'), total_row)
         pdf = sales.export_cash_closing_pdf(day, self.session)
         self.assertTrue(pdf.body.startswith(b'%PDF-'))
+
+    def test_cash_closing_empty_day_keeps_expense_section_with_zero(self):
+        day = date(2026, 10, 16)
+        sheet = load_workbook(BytesIO(sales.export_daily_payment_methods_xlsx(day, self.session).body)).active
+        empty_row = next(row for row in sheet if row[0].value == 'Sin gastos registrados')
+        self.assertEqual(empty_row[5].value, 0)
+        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL GASTOS CAJA')
+        self.assertEqual(sheet.cell(total_row, 6).value, f'=SUM(F{empty_row[0].row}:F{empty_row[0].row})')
+        self.assertEqual(sales.get_cash_closing(day, self.session).expenses_total, 0)
 
     def add_expense(self, name, category, amount, expense_type=None, *, day=date(2026, 10, 15), status='manual', active=True):
         expense = models.FixedExpense(name=name, category=category, is_active=active)
