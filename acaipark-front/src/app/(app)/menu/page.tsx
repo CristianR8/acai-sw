@@ -21,16 +21,18 @@ async function getMenuItems() {
   return (await response.json()) as Array<{
     id: number;
     name: string;
-    category: string;
     price: string;
     description?: string | null;
-    ingredients?: Array<{
-      name: string;
-      unit: string;
-      weight: string | number;
-      price: string | number;
-      total?: string | number;
-    }> | string[] | null;
+    ingredients?:
+      | Array<{
+          name: string;
+          unit: string;
+          weight: string | number;
+          price: string | number;
+          total?: string | number;
+        }>
+      | string[]
+      | null;
   }>;
 }
 

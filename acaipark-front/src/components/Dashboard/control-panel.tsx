@@ -28,7 +28,6 @@ type ExpensePayment = { amount: number | string; payment_date: string; status?: 
 type SalesByProduct = {
   menu_item_id: number | null;
   name: string;
-  category: string;
   base?: string | null;
   quantity: number | string;
   total: number | string;
@@ -223,7 +222,6 @@ export default function ControlPanel({ range }: { range: DateRange }) {
               <TableHeader>
                 <TableRow className="bg-primary/10 text-primary hover:bg-primary/10 dark:hover:bg-primary/10">
                   <TableHead>Producto</TableHead>
-                  <TableHead>Categoria</TableHead>
                   <TableHead>Vendidos</TableHead>
                   <TableHead>Total</TableHead>
                 </TableRow>
@@ -231,13 +229,12 @@ export default function ControlPanel({ range }: { range: DateRange }) {
               <TableBody>
                 {topProductsRows.map((row) => (
                   <TableRow
-                    key={`${row.menu_item_id}-${row.name}-${row.category}-${row.base ?? "none"}`}
+                    key={`${row.menu_item_id}-${row.name}-${row.base ?? "none"}`}
                     className="transition-colors hover:bg-primary/5"
                   >
                     <TableCell className="font-medium text-black dark:text-white">
                       {row.name}
                     </TableCell>
-                    <TableCell>{row.category}</TableCell>
                     <TableCell>{formatQty(row.quantity)}</TableCell>
                     <TableCell className="font-semibold text-black dark:text-white">
                       {formatMoney(row.total)}

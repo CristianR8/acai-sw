@@ -32,7 +32,7 @@ class MenuItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
-    category = Column(String, index=True, nullable=False)
+    category = Column(String, index=True, nullable=False, default="")
     price = Column(Numeric(10, 2), nullable=False)
     description = Column(Text, nullable=True)
     ingredients = Column(JSON, nullable=True)
@@ -332,8 +332,8 @@ class PosOrderItem(Base):
     order_id = Column(Integer, ForeignKey("pos_orders.id"), nullable=False, index=True)
     menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
-    zone = Column(String, nullable=False)  # kitchen|bar
+    category = Column(String, nullable=False, default="")
+    zone = Column(String, nullable=False, default="general")
 
     quantity = Column(Numeric(14, 2), nullable=False, default=1)
     unit_price = Column(Numeric(14, 2), nullable=False, default=0)
@@ -547,7 +547,7 @@ class SaleItem(Base):
     sale_id = Column(Integer, ForeignKey("sales.id", ondelete="CASCADE"), index=True, nullable=False)
     menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
+    category = Column(String, nullable=False, default="")
     quantity = Column(Numeric(14, 2), nullable=False, default=0)
     unit_price = Column(Numeric(14, 2), nullable=False, default=0)
     tax_rate = Column(Numeric(6, 4), nullable=False, default=0)

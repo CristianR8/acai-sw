@@ -24,7 +24,6 @@ type SaleItem = {
   id: number;
   menu_item_id: number | null;
   name: string;
-  category: string;
   quantity: number | string;
   unit_price: number | string;
   tax_rate: number | string;
@@ -56,7 +55,6 @@ type Sale = {
 type SalesByProduct = {
   menu_item_id: number | null;
   name: string;
-  category: string;
   base?: string | null;
   quantity: number | string;
   total: number | string;
@@ -517,22 +515,18 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
                 <TableRow className="border-none bg-[#F7F9FC] dark:bg-dark-2">
                   <TableHead>Producto</TableHead>
                   <TableHead>Base</TableHead>
-                  <TableHead>Categoria</TableHead>
                   <TableHead>Cantidad</TableHead>
                   <TableHead>Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedSalesByProduct.map((row) => (
-                  <TableRow key={`${row.menu_item_id}-${row.name}-${row.category}-${row.base ?? "none"}`}>
+                  <TableRow key={`${row.menu_item_id}-${row.name}-${row.base ?? "none"}`}>
                     <TableCell className="font-medium text-black dark:text-white">
                       {row.name}
                     </TableCell>
                     <TableCell className="text-black dark:text-white">
                       {row.base ?? "Sin base registrada"}
-                    </TableCell>
-                    <TableCell className="text-black dark:text-white">
-                      {row.category}
                     </TableCell>
                     <TableCell className="text-black dark:text-white">
                       {formatQty(row.quantity)}

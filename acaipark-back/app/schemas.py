@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class UserRole(str, Enum):
     administrator = "administrator"
@@ -222,6 +222,15 @@ class PurchaseOut(BaseModel):
         orm_mode = True
 
 
+class FixedExpenseCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
 class FixedExpenseOut(BaseModel):
     id: int
     name: str
@@ -405,7 +414,6 @@ class PosTableOut(BaseModel):
 class PosOrderItemCreate(BaseModel):
     menu_item_id: int | None = None
     name: str | None = Field(default=None, max_length=200)
-    category: str | None = Field(default=None, max_length=100)
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     tax_rate: Decimal = Field(ge=0, le=Decimal("1"))
@@ -424,8 +432,6 @@ class PosOrderItemOut(BaseModel):
     id: int
     menu_item_id: int | None
     name: str
-    category: str
-    zone: str
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
@@ -486,7 +492,6 @@ class SaleItemOut(BaseModel):
     id: int
     menu_item_id: int | None
     name: str
-    category: str
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
@@ -604,7 +609,6 @@ class FactusHealthOut(BaseModel):
 class SalesByProductOut(BaseModel):
     menu_item_id: int | None
     name: str
-    category: str
     base: str | None = None
     quantity: Decimal
     total: Decimal
@@ -635,7 +639,6 @@ class MenuItemIngredient(BaseModel):
 
 class MenuItemBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    category: str = Field(min_length=1, max_length=100)
     price: Decimal
     description: str | None = None
     ingredients: list[MenuItemIngredient] | list[str] | None = None
@@ -647,7 +650,6 @@ class MenuItemCreate(MenuItemBase):
 
 class MenuItemUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    category: str | None = Field(default=None, min_length=1, max_length=100)
     price: Decimal | None = None
     description: str | None = None
     ingredients: list[MenuItemIngredient] | list[str] | None = None

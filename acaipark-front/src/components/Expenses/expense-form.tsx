@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import ExpenseTypeForm from "./expense-type-form";
 import {
   localToday,
   numericAmount,
@@ -140,6 +141,20 @@ export default function ExpenseForm({
           {message}
         </p>
       ) : null}
+      <ExpenseTypeForm
+        disabled={loading || saving}
+        onCreated={(expense) => {
+          setExpenses((current) =>
+            [...current.filter((item) => item.id !== expense.id), expense].sort(
+              (a, b) =>
+                a.category.localeCompare(b.category, "es") ||
+                a.name.localeCompare(b.name, "es"),
+            ),
+          );
+          setExpenseId(String(expense.id));
+          setMessage("Tipo de gasto creado. Ya puedes registrar el pago.");
+        }}
+      />
       <form
         onSubmit={registerPayment}
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-2 xl:items-end"

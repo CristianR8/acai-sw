@@ -4,7 +4,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --include=dev
+RUN npm ci --include=dev || { status=$?; cat /root/.npm/_logs/*-debug-0.log; exit "$status"; }
 
 COPY . .
 RUN npm run build

@@ -47,6 +47,7 @@ export const NAV_DATA: NavigationSection[] = [
         adminOnly: true,
         items: [
           { title: "Compras", url: "/inventory/purchases" },
+          { title: "Informe de compras", url: "/inventory/purchases/report" },
           { title: "Gastos", url: "/expenses" },
           { title: "Informe de gastos", url: "/expenses/report" },
         ],

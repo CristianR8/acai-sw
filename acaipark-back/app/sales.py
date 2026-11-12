@@ -504,7 +504,6 @@ def sales_by_product(
             models.Sale.order_id,
             models.SaleItem.menu_item_id,
             models.SaleItem.name,
-            models.SaleItem.category,
             models.SaleItem.unit_price,
             models.SaleItem.quantity,
             models.SaleItem.line_total,
@@ -563,10 +562,10 @@ def sales_by_product(
                 name = "Bowl"
             else:
                 name = "Cono"
-        key = (row.menu_item_id, name, row.category, base)
+        key = (row.menu_item_id, name, base)
         if key not in grouped:
             grouped[key] = schemas.SalesByProductOut(
-                menu_item_id=row.menu_item_id, name=name, category=row.category,
+                menu_item_id=row.menu_item_id, name=name,
                 base=base, quantity=Decimal("0"), total=Decimal("0"),
             )
         grouped[key].quantity += row.quantity

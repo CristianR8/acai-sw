@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas
@@ -56,6 +58,29 @@ def list_fixed_expenses(db_session: Session = Depends(db.get_db)):
     return db_session.query(models.FixedExpense).order_by(
         models.FixedExpense.category, models.FixedExpense.name
     ).all()
+
+
+@router.post("/fixed", response_model=schemas.FixedExpenseOut, status_code=201)
+def create_fixed_expense(
+    payload: schemas.FixedExpenseCreate,
+    db_session: Session = Depends(db.get_db),
+):
+    ensure_default_fixed_expenses(db_session)
+    existing = db_session.query(models.FixedExpense).filter(
+        func.lower(models.FixedExpense.name) == payload.name.lower()
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe un tipo de gasto con ese nombre.")
+
+    expense = models.FixedExpense(name=payload.name, category="Otros")
+    db_session.add(expense)
+    try:
+        db_session.commit()
+    except IntegrityError:
+        db_session.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un tipo de gasto con ese nombre.")
+    db_session.refresh(expense)
+    return expense
 
 
 @router.get("/payments", response_model=list[schemas.ManualExpensePaymentOut])

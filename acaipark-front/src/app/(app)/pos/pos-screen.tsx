@@ -62,7 +62,6 @@ function persistHiddenFinishedOrderIds(ids: Set<number>) {
 type MenuItem = {
   id: number;
   name: string;
-  category: string;
   price: string | number;
   description?: string | null;
   ingredients?: MenuIngredient[] | string[] | null;
@@ -105,7 +104,6 @@ type PaymentMethod = "cash" | "dataphone" | "transfer";
 type PosOrderItemCreate = {
   menu_item_id: number | null;
   name?: string | null;
-  category?: string | null;
   quantity: number;
   unit_price: number;
   tax_rate: number | null;
@@ -139,9 +137,7 @@ type PosOrderOut = {
     id: number;
     menu_item_id: number | null;
     name: string;
-    category: string;
-    zone: string;
-    quantity: number | string;
+      quantity: number | string;
     unit_price: number | string;
     tax_rate: number | string;
     discount_amount: number | string;
@@ -169,7 +165,7 @@ function formatOrderNumber(order: { id: number; display_number?: number | null }
   return String(order.display_number ?? order.id).padStart(4, "0");
 }
 
-function categoryKey(value: string) {
+function normalizeTableName(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -298,7 +294,6 @@ function ViewOrderModal({
   onClose: () => void;
 }) {
   if (!order) return null;
-  const zoneLabel = (_zone: string) => "Preparación";
   const status = orderStatusMeta(order.status);
   return (
     <div
@@ -341,9 +336,6 @@ function ViewOrderModal({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="font-semibold">{item.name}</div>
-                    <div className="text-xs text-dark-6 dark:text-dark-6">
-                      {item.category} · {zoneLabel(item.zone)}
-                    </div>
                   </div>
                   <div className="text-sm font-semibold text-primary">
                     {formatMoney(Number(item.unit_price))}
@@ -1006,7 +998,7 @@ export default function PosScreen() {
         const availableTables = payload as PosTable[];
         let orderPoint =
           availableTables.find(
-            (table) => categoryKey(table.name) === "punto de venta",
+            (table) => normalizeTableName(table.name) === "punto de venta",
           ) ?? availableTables[0];
 
         if (!orderPoint) {
@@ -1057,7 +1049,6 @@ export default function PosScreen() {
       );
     });
     const productName = baseItem?.name ?? configuredOrder.menuItemName ?? configuredOrder.name;
-    const category = baseItem?.category ?? "Toma de pedidos";
 
     setCart((prev) => {
       const draft = { ...prev };
@@ -1070,7 +1061,6 @@ export default function PosScreen() {
           cartItemId,
           menu_item_id: baseItem?.id ?? null,
           name: productName,
-          category,
           quantity: editingItem?.quantity ?? 1,
           unit_price: configuredOrder.price,
           tax_rate: 0,
@@ -1147,7 +1137,6 @@ export default function PosScreen() {
             return {
               menu_item_id: ci.menu_item_id,
               name: ci.name ?? null,
-              category: ci.category ?? null,
               quantity: ci.quantity,
               unit_price: ci.unit_price,
               tax_rate: ci.tax_rate ?? 0,

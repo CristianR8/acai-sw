@@ -1,38 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BiSolidDrink, BiSolidDish } from "react-icons/bi";
-import { FaBitbucket, FaWineBottle } from "react-icons/fa";
-import {
-  FaBowlFood,
-  FaChild,
-  FaGlassWater,
-  FaHotdog,
-  FaStroopwafel,
-} from "react-icons/fa6";
 import { GrDocumentText } from "react-icons/gr";
-import { GiCutLemon, GiJug, GiSodaCan } from "react-icons/gi";
-import { LiaWineGlassAltSolid } from "react-icons/lia";
-import { LuCupSoda, LuEggFried } from "react-icons/lu";
-import { MdOutlineFoodBank } from "react-icons/md";
-import {
-  PiBeerBottleBold,
-  PiBowlFoodFill,
-  PiHamburgerBold,
-} from "react-icons/pi";
-import {
-  RiDeleteBinLine,
-  RiDrinks2Fill,
-  RiEdit2Line,
-  RiRestaurantLine,
-} from "react-icons/ri";
+import { RiDeleteBinLine, RiEdit2Line } from "react-icons/ri";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SearchIcon } from "@/assets/icons";
 
 type MenuItem = {
   id: number;
   name: string;
-  category: string;
   price: string | number;
   description?: string | null;
   ingredients?: MenuIngredient[] | string[] | null;
@@ -60,30 +36,6 @@ type InventoryProduct = {
   source: "ingredient" | "recipe";
 };
 
-function formatCategory(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return trimmed;
-  return trimmed[0].toUpperCase() + trimmed.slice(1);
-}
-
-function slugify(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function categoryKey(value: string) {
-  return slugify(value);
-}
-
-function categoryToId(category: string) {
-  return `cat-${slugify(category)}`;
-}
-
 function formatCopPrice(value: string | number) {
   const raw = String(value);
   const normalized = raw.replace(/\s/g, "").replace(/[^\d.,-]/g, "");
@@ -108,7 +60,10 @@ function normalizeCopIntegerInput(value: string | number) {
     const parts = s.split(sep);
     if (parts.length <= 1) return false;
     if (!parts.every((p) => /^\d+$/.test(p))) return false;
-    return [1, 2, 3].includes(parts[0]!.length) && parts.slice(1).every((p) => p.length === 3);
+    return (
+      [1, 2, 3].includes(parts[0]!.length) &&
+      parts.slice(1).every((p) => p.length === 3)
+    );
   };
 
   let normalized = cleaned;
@@ -119,9 +74,13 @@ function normalizeCopIntegerInput(value: string | number) {
       normalized = cleaned.replace(/,/g, "");
     }
   } else if (cleaned.includes(".")) {
-    normalized = looksLikeThousandsSep(cleaned, ".") ? cleaned.replace(/\./g, "") : cleaned;
+    normalized = looksLikeThousandsSep(cleaned, ".")
+      ? cleaned.replace(/\./g, "")
+      : cleaned;
   } else if (cleaned.includes(",")) {
-    normalized = looksLikeThousandsSep(cleaned, ",") ? cleaned.replace(/,/g, "") : cleaned.replace(/,/g, ".");
+    normalized = looksLikeThousandsSep(cleaned, ",")
+      ? cleaned.replace(/,/g, "")
+      : cleaned.replace(/,/g, ".");
   }
 
   const asNumber = Number.parseFloat(normalized);
@@ -139,7 +98,10 @@ function parseDecimalInput(value: string | number) {
     const parts = input.split(sep);
     if (parts.length <= 1) return false;
     if (!parts.every((p) => /^\d+$/.test(p))) return false;
-    return [1, 2, 3].includes(parts[0]!.length) && parts.slice(1).every((p) => p.length === 3);
+    return (
+      [1, 2, 3].includes(parts[0]!.length) &&
+      parts.slice(1).every((p) => p.length === 3)
+    );
   };
 
   if (raw.includes(".") && raw.includes(",")) {
@@ -151,7 +113,9 @@ function parseDecimalInput(value: string | number) {
   } else if (raw.includes(".")) {
     if (looksLikeThousandsSep(raw, ".")) raw = raw.replace(/\./g, "");
   } else if (raw.includes(",")) {
-    raw = looksLikeThousandsSep(raw, ",") ? raw.replace(/,/g, "") : raw.replace(/,/g, ".");
+    raw = looksLikeThousandsSep(raw, ",")
+      ? raw.replace(/,/g, "")
+      : raw.replace(/,/g, ".");
   }
 
   const parsed = Number.parseFloat(raw);
@@ -207,69 +171,13 @@ function normalizeRecipeDraft(ingredients: MenuItem["ingredients"]) {
   }));
 }
 
-const DEFAULT_BAR_CATEGORIES = new Set(
-  [
-    "Bebidas",
-    "Sodas",
-    "Gaseosas",
-    "Para el Almuerzo",
-    "Cervezas nacionales",
-    "Cervezas Internacionales",
-    "Micheladas",
-    "Licores y Shots",
-    "Cubetazos",
-    "Cocteleria",
-    "Vinos",
-  ].map(categoryKey),
-);
-
-const STORAGE_KEY_BAR_CATEGORIES = "acai.menu.customBarCategories";
-const STORAGE_KEY_RESTAURANTE_CATEGORIES = "acai.menu.customRestauranteCategories";
-
-const RESTAURANTE_NAV = [
-  { label: "Almuerzos", Icon: FaBowlFood },
-  { label: "Antojitos de la casa", Icon: MdOutlineFoodBank },
-  { label: "Burguers", Icon: PiHamburgerBold },
-  { label: "Desayunos", Icon: LuEggFried },
-  { label: "Dogs", Icon: FaHotdog },
-  { label: "Entradas", Icon: RiRestaurantLine },
-  { label: "Menu infantil", Icon: FaChild },
-  { label: "para Tardear", Icon: FaStroopwafel },
-  { label: "Platos especiales", Icon: BiSolidDish },
-] as const;
-
-const BAR_NAV = [
-  { label: "Bebidas", Icon: RiDrinks2Fill },
-  { label: "Cervezas nacionales", Icon: PiBeerBottleBold },
-  { label: "Cocteleria", Icon: LiaWineGlassAltSolid },
-  { label: "Cubetazos", Icon: FaBitbucket },
-  { label: "Gaseosas", Icon: LuCupSoda },
-  { label: "Licores y shots", Icon: BiSolidDrink },
-  { label: "Micheladas", Icon: GiCutLemon },
-  { label: "Para el almuerzo", Icon: GiJug },
-  { label: "Sodas", Icon: GiSodaCan },
-  { label: "Vinos", Icon: FaWineBottle },
-] as const;
-
 export default function Menu({ items }: { items: MenuItem[] }) {
-  const [tab, setTab] = useState<"restaurante" | "bar">("restaurante");
   const [localItems, setLocalItems] = useState<MenuItem[]>(items);
-
-  const [customBarCategories, setCustomBarCategories] = useState<string[]>([]);
-  const [customRestauranteCategories, setCustomRestauranteCategories] = useState<
-    string[]
-  >([]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
-  const [editingOriginalCategoryKey, setEditingOriginalCategoryKey] = useState<
-    string | null
-  >(null);
-  const [categoryInput, setCategoryInput] = useState("");
-  const [categoryMode, setCategoryMode] = useState<"existing" | "new">("existing");
-  const [categoryNewInput, setCategoryNewInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [priceInput, setPriceInput] = useState("");
   const [descriptionInput, setDescriptionInput] = useState("");
@@ -288,7 +196,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
-  const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
+  const [inventoryProducts, setInventoryProducts] = useState<
+    InventoryProduct[]
+  >([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -325,10 +235,12 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     setInventoryLoading(true);
     setInventoryError(null);
     Promise.all([
-      fetch("/api/inventory/products?kind=ingredient", { cache: "no-store" })
-        .then((res) => res.json().catch(() => null)),
-      fetch("/api/inventory/recipes", { cache: "no-store" })
-        .then((res) => res.json().catch(() => null)),
+      fetch("/api/inventory/products?kind=ingredient", {
+        cache: "no-store",
+      }).then((res) => res.json().catch(() => null)),
+      fetch("/api/inventory/recipes", { cache: "no-store" }).then((res) =>
+        res.json().catch(() => null),
+      ),
     ])
       .then(([productsPayload, recipesPayload]) => {
         if (!Array.isArray(productsPayload) || !Array.isArray(recipesPayload)) {
@@ -359,10 +271,15 @@ export default function Menu({ items }: { items: MenuItem[] }) {
           if (!merged.has(key)) merged.set(key, item);
         }
 
-        setInventoryProducts([...merged.values()].sort((a, b) => a.name.localeCompare(b.name)));
+        setInventoryProducts(
+          [...merged.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        );
       })
       .catch((error) => {
-        const message = error instanceof Error ? error.message : "No se pudo cargar inventario.";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar inventario.";
         setInventoryError(message);
         setInventoryProducts([]);
       })
@@ -389,31 +306,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     });
   }, [inventoryProducts]);
 
-  useEffect(() => {
-    try {
-      const storedBar = window.localStorage.getItem(STORAGE_KEY_BAR_CATEGORIES);
-      if (storedBar) {
-        const parsed = JSON.parse(storedBar);
-        if (Array.isArray(parsed)) {
-          setCustomBarCategories(parsed.filter((v) => typeof v === "string"));
-        }
-      }
-      const storedRest = window.localStorage.getItem(
-        STORAGE_KEY_RESTAURANTE_CATEGORIES,
-      );
-      if (storedRest) {
-        const parsed = JSON.parse(storedRest);
-        if (Array.isArray(parsed)) {
-          setCustomRestauranteCategories(
-            parsed.filter((v) => typeof v === "string"),
-          );
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
   const recipeTotals = useMemo(() => {
     return recipeDraft.reduce(
       (acc, row) => {
@@ -427,129 +319,14 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     );
   }, [recipeDraft]);
 
-  function persistBarCategories(next: string[]) {
-    setCustomBarCategories(next);
-    try {
-      window.localStorage.setItem(STORAGE_KEY_BAR_CATEGORIES, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
-  }
-
-  function persistRestauranteCategories(next: string[]) {
-    setCustomRestauranteCategories(next);
-    try {
-      window.localStorage.setItem(
-        STORAGE_KEY_RESTAURANTE_CATEGORIES,
-        JSON.stringify(next),
-      );
-    } catch {
-      // ignore
-    }
-  }
-
-  const barCategoryKeySet = useMemo(() => {
-    const merged = new Set(DEFAULT_BAR_CATEGORIES);
-    for (const c of customBarCategories) merged.add(categoryKey(c));
-    return merged;
-  }, [customBarCategories]);
-
-  const { barItems, restauranteItems } = useMemo(() => {
-    const bar: MenuItem[] = [];
-    const restaurante: MenuItem[] = [];
-
-    for (const item of localItems) {
-      const category = categoryKey(item.category);
-      if (barCategoryKeySet.has(category)) bar.push(item);
-      else restaurante.push(item);
-    }
-
-    return { barItems: bar, restauranteItems: restaurante };
-  }, [barCategoryKeySet, localItems]);
-
-  const activeItems = tab === "bar" ? barItems : restauranteItems;
   const filteredItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return activeItems;
-    return activeItems.filter((item) => {
-      const name = item.name?.toLowerCase() ?? "";
-      const category = item.category?.toLowerCase() ?? "";
-      return name.includes(query) || category.includes(query);
-    });
-  }, [activeItems, searchQuery]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, MenuItem[]>();
-    for (const item of filteredItems) {
-      const key = formatCategory(item.category);
-      const existing = map.get(key);
-      if (existing) existing.push(item);
-      else map.set(key, [item]);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredItems]);
-
-  const activeCategorySet = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of activeItems) set.add(categoryKey(item.category));
-    return set;
-  }, [activeItems]);
-
-  const categoryOptions = useMemo(() => {
-    const fromItems = grouped.map(([category]) => category);
-    const fromCustom =
-      tab === "bar" ? customBarCategories : customRestauranteCategories;
-    const merged = new Map<string, string>();
-    for (const c of [...fromItems, ...fromCustom]) {
-      const trimmed = c.trim();
-      if (!trimmed) continue;
-      const key = categoryKey(trimmed);
-      if (!merged.has(key)) merged.set(key, trimmed);
-    }
-    return [...merged.values()].sort((a, b) => a.localeCompare(b));
-  }, [customBarCategories, customRestauranteCategories, grouped, tab]);
-
-  const customCategoryKeySet = useMemo(() => {
-    const list = tab === "bar" ? customBarCategories : customRestauranteCategories;
-    const set = new Set<string>();
-    for (const c of list) set.add(categoryKey(c));
-    return set;
-  }, [customBarCategories, customRestauranteCategories, tab]);
-
-  const customCategoryLabels = useMemo(() => {
-    const fixedKeys = new Set(
-      (tab === "bar" ? BAR_NAV : RESTAURANTE_NAV).map((c) => categoryKey(c.label)),
-    );
-    const list = tab === "bar" ? customBarCategories : customRestauranteCategories;
-    const merged = new Map<string, string>();
-    for (const c of list) {
-      const trimmed = c.trim();
-      if (!trimmed) continue;
-      const key = categoryKey(trimmed);
-      if (fixedKeys.has(key)) continue;
-      if (!merged.has(key)) merged.set(key, trimmed);
-    }
-    return [...merged.values()].sort((a, b) => a.localeCompare(b));
-  }, [customBarCategories, customRestauranteCategories, tab]);
-
-  function createCategory(category: string) {
-    const trimmed = category.trim();
-    if (!trimmed) return;
-
-    if (tab === "bar") {
-      if (customBarCategories.some((c) => categoryKey(c) === categoryKey(trimmed)))
-        return;
-      persistBarCategories([...customBarCategories, trimmed]);
-    } else {
-      if (
-        customRestauranteCategories.some(
-          (c) => categoryKey(c) === categoryKey(trimmed),
+    const query = searchQuery.trim().toLocaleLowerCase("es");
+    return query
+      ? localItems.filter((item) =>
+          item.name.toLocaleLowerCase("es").includes(query),
         )
-      )
-        return;
-      persistRestauranteCategories([...customRestauranteCategories, trimmed]);
-    }
-  }
+      : localItems;
+  }, [localItems, searchQuery]);
 
   function startCreate() {
     setShowCreate(true);
@@ -557,11 +334,7 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     setEditingId(null);
     setEditingItem(null);
     setRecipeDraft([{ name: "", unit: "", weight: "", price: "" }]);
-    setEditingOriginalCategoryKey(null);
     setSubmitStatus({ kind: "idle" });
-    setCategoryInput("");
-    setCategoryMode("existing");
-    setCategoryNewInput("");
     setNameInput("");
     setPriceInput("");
     setDescriptionInput("");
@@ -573,11 +346,7 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     setEditingId(item.id);
     setEditingItem(item);
     setRecipeDraft(normalizeRecipeDraft(item.ingredients));
-    setEditingOriginalCategoryKey(categoryKey(item.category));
     setSubmitStatus({ kind: "idle" });
-    setCategoryInput(item.category ?? "");
-    setCategoryMode("existing");
-    setCategoryNewInput("");
     setNameInput(item.name ?? "");
     setPriceInput(normalizeCopIntegerInput(item.price ?? ""));
     setDescriptionInput(item.description ?? "");
@@ -587,13 +356,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     setFormMode("create");
     setEditingId(null);
     setEditingItem(null);
-    setEditingOriginalCategoryKey(null);
     setSubmitStatus({ kind: "idle" });
     setNameInput("");
     setPriceInput("");
     setDescriptionInput("");
-    setCategoryMode("existing");
-    setCategoryNewInput("");
     setRecipeDraft([]);
   }
 
@@ -609,7 +375,11 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     setRecipeStatus({ kind: "idle" });
   }
 
-  function updateRecipeRow(index: number, field: keyof RecipeIngredientDraft, value: string) {
+  function updateRecipeRow(
+    index: number,
+    field: keyof RecipeIngredientDraft,
+    value: string,
+  ) {
     setRecipeDraft((prev) =>
       prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
     );
@@ -631,7 +401,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
   }
 
   function addRecipeRow() {
-    setRecipeDraft((prev) => [...prev, { name: "", unit: "", weight: "", price: "" }]);
+    setRecipeDraft((prev) => [
+      ...prev,
+      { name: "", unit: "", weight: "", price: "" },
+    ]);
   }
 
   function removeRecipeRow(index: number) {
@@ -722,7 +495,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: recipeModalItem.name,
-          category: recipeModalItem.category,
           price: Number(price),
           description: recipeModalItem.description ?? null,
           ingredients,
@@ -741,7 +513,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       }
 
       const updated = payload as MenuItem;
-      setLocalItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setLocalItems((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
       setRecipeStatus({ kind: "success", message: "Receta guardada." });
       setRecipeModalItem(updated);
       closeRecipeModal();
@@ -756,8 +530,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
   async function handleCreateItem() {
     setSubmitStatus({ kind: "loading" });
 
-    const category =
-      categoryMode === "new" ? categoryNewInput.trim() : categoryInput.trim();
     const name = nameInput.trim();
     const price = normalizeCopIntegerInput(priceInput);
     const description = descriptionInput.trim();
@@ -768,10 +540,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       return;
     }
 
-    if (!category || !name || !price) {
+    if (!name || !price) {
       setSubmitStatus({
         kind: "error",
-        message: "Nombre, categoría y precio son requeridos.",
+        message: "Nombre y precio son requeridos.",
       });
       return;
     }
@@ -782,7 +554,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
-          category,
           price: Number(price),
           description: description ? description : null,
           ingredients: recipeResult.ingredients,
@@ -802,13 +573,11 @@ export default function Menu({ items }: { items: MenuItem[] }) {
 
       const created = payload as MenuItem;
       setLocalItems((prev) => [created, ...prev]);
-      createCategory(created.category);
 
       setSubmitStatus({ kind: "success", message: "Item creado." });
       setNameInput("");
       setPriceInput("");
       setDescriptionInput("");
-      setCategoryInput("");
       setShowCreate(false);
       cancelEdit();
     } catch {
@@ -823,8 +592,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
     if (!editingId) return;
     setSubmitStatus({ kind: "loading" });
 
-    const category =
-      categoryMode === "new" ? categoryNewInput.trim() : categoryInput.trim();
     const name = nameInput.trim();
     const price = normalizeCopIntegerInput(priceInput);
     const description = descriptionInput.trim();
@@ -834,10 +601,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       return;
     }
 
-    if (!category || !name || !price) {
+    if (!name || !price) {
       setSubmitStatus({
         kind: "error",
-        message: "Nombre, categoría y precio son requeridos.",
+        message: "Nombre y precio son requeridos.",
       });
       return;
     }
@@ -848,7 +615,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
-          category,
           price: Number(price),
           description: description ? description : null,
           ingredients: recipeResult.ingredients,
@@ -867,39 +633,13 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       }
 
       const updated = payload as MenuItem;
-      const updatedCategoryKey = categoryKey(updated.category);
-      const originalCategoryKey = editingOriginalCategoryKey;
 
       setLocalItems((prev) =>
         prev.map((i) => (i.id === editingId ? updated : i)),
       );
-      createCategory(updated.category);
-
-      if (originalCategoryKey && originalCategoryKey !== updatedCategoryKey) {
-        const itemWasBar = barCategoryKeySet.has(originalCategoryKey);
-        const list = itemWasBar ? barItems : restauranteItems;
-        const stillExists = list.some(
-          (i) => i.id !== editingId && categoryKey(i.category) === originalCategoryKey,
-        );
-        if (!stillExists) {
-          if (itemWasBar) {
-            const next = customBarCategories.filter(
-              (c) => categoryKey(c) !== originalCategoryKey,
-            );
-            if (next.length !== customBarCategories.length) persistBarCategories(next);
-          } else {
-            const next = customRestauranteCategories.filter(
-              (c) => categoryKey(c) !== originalCategoryKey,
-            );
-            if (next.length !== customRestauranteCategories.length)
-              persistRestauranteCategories(next);
-          }
-        }
-      }
 
       setSubmitStatus({ kind: "success", message: "Item actualizado." });
       setShowCreate(false);
-      setCategoryInput("");
       cancelEdit();
     } catch {
       setSubmitStatus({
@@ -907,37 +647,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         message: "Error editando el item (revisa conexión al backend).",
       });
     }
-  }
-
-  function handleDeleteCategory(category: string) {
-    const key = categoryKey(category);
-    const count = localItems.filter((i) => categoryKey(i.category) === key).length;
-
-    const isCustom = customCategoryKeySet.has(key);
-    if (!isCustom) {
-      window.alert("Solo puedes eliminar categorías creadas por ti.");
-      return;
-    }
-
-    if (count > 0) {
-      window.alert(
-        "No puedes eliminar una categoría que aún tiene items. Elimina primero los items.",
-      );
-      return;
-    }
-
-    const ok = window.confirm(`Eliminar la categoría "${category}"?`);
-    if (!ok) return;
-
-    if (tab === "bar") {
-      persistBarCategories(customBarCategories.filter((c) => categoryKey(c) !== key));
-    } else {
-      persistRestauranteCategories(
-        customRestauranteCategories.filter((c) => categoryKey(c) !== key),
-      );
-    }
-
-    if (categoryKey(categoryInput) === key) setCategoryInput("");
   }
 
   async function handleDeleteItem(itemId: number) {
@@ -962,32 +671,7 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         return;
       }
 
-      const deletedCategoryKey = categoryKey(item.category);
-      const itemIsBar = barCategoryKeySet.has(deletedCategoryKey);
-
-      let categoryIsNowEmpty = false;
-      setLocalItems((prev) => {
-        const next = prev.filter((i) => i.id !== itemId);
-        categoryIsNowEmpty = !next.some(
-          (i) => categoryKey(i.category) === deletedCategoryKey,
-        );
-        return next;
-      });
-
-      if (categoryIsNowEmpty) {
-        if (itemIsBar) {
-          const next = customBarCategories.filter(
-            (c) => categoryKey(c) !== deletedCategoryKey,
-          );
-          if (next.length !== customBarCategories.length) persistBarCategories(next);
-        } else {
-          const next = customRestauranteCategories.filter(
-            (c) => categoryKey(c) !== deletedCategoryKey,
-          );
-          if (next.length !== customRestauranteCategories.length)
-            persistRestauranteCategories(next);
-        }
-      }
+      setLocalItems((prev) => prev.filter((item) => item.id !== itemId));
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -999,35 +683,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
 
   return (
     <div className="rounded-2xl border border-stroke bg-white p-6 shadow-1 dark:border-dark-3 dark:bg-gray-dark dark:shadow-card">
-      <div className="mb-6">
-        <div className="inline-flex w-full rounded-xl bg-gray-2 p-1 dark:bg-dark-2">
-          <button
-            type="button"
-            onClick={() => setTab("restaurante")}
-            className={
-              "flex-1 rounded-lg px-4 py-2 text-center text-sm font-medium transition " +
-              (tab === "restaurante"
-                ? "bg-white text-dark shadow-sm ring-1 ring-black/5 dark:bg-gray-dark dark:text-white dark:ring-white/10"
-                : "text-body hover:text-dark dark:text-dark-6 dark:hover:text-white")
-            }
-          >
-            Restaurante ({restauranteItems.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("bar")}
-            className={
-              "flex-1 rounded-lg px-4 py-2 text-center text-sm font-medium transition " +
-              (tab === "bar"
-                ? "bg-white text-dark shadow-sm ring-1 ring-black/5 dark:bg-gray-dark dark:text-white dark:ring-white/10"
-                : "text-body hover:text-dark dark:text-dark-6 dark:hover:text-white")
-            }
-          >
-            Bar ({barItems.length})
-          </button>
-        </div>
-      </div>
-
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -1041,13 +696,13 @@ export default function Menu({ items }: { items: MenuItem[] }) {
           }}
           className="flex items-center rounded-xl bg-tertiary px-4 py-2 text-sm font-semibold text-dark transition hover:bg-tertiary/60"
         >
-          {showCreate ? "Cerrar" : "Agregar categoría / item"}
+          {showCreate ? "Cerrar" : "Agregar producto"}
         </button>
         <div className="relative ml-auto w-full max-w-xs">
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={tab === "bar" ? "Buscar en bar..." : "Buscar en restaurante..."}
+            placeholder="Buscar productos por nombre..."
             className="w-full rounded-md border-2 border-primary/40 bg-white py-2 pl-11 pr-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-3 dark:bg-gray-dark dark:text-white"
           />
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
@@ -1070,7 +725,7 @@ export default function Menu({ items }: { items: MenuItem[] }) {
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="text-base font-semibold text-dark dark:text-white">
-                {formMode === "edit" ? "Editar item" : "Crear categoría / item"}
+                {formMode === "edit" ? "Editar item" : "Crear producto"}
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1088,49 +743,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
             </div>
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-dark dark:text-white">
-                  Categoría
-                </label>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={categoryMode}
-                    onChange={(e) =>
-                      setCategoryMode(e.target.value === "new" ? "new" : "existing")
-                    }
-                    className="w-28 rounded-xl border border-stroke bg-transparent px-3 py-2 text-xs text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
-                  >
-                    <option value="existing">Existente</option>
-                    <option value="new">Nueva</option>
-                  </select>
-                  {categoryMode === "new" ? (
-                    <input
-                      value={categoryNewInput}
-                      onChange={(e) => setCategoryNewInput(e.target.value)}
-                      placeholder="Nueva categoría"
-                      className="flex-1 rounded-xl border border-stroke bg-transparent px-3 py-2 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
-                    />
-                  ) : (
-                    <select
-                      value={categoryInput}
-                      onChange={(e) => setCategoryInput(e.target.value)}
-                      className="w-52 rounded-xl border border-stroke bg-transparent px-3 py-2 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
-                    >
-                      <option value="">
-                        {tab === "bar"
-                          ? "Selecciona categoría (Bar)"
-                          : "Selecciona categoría (Restaurante)"}
-                      </option>
-                      {categoryOptions.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
               <div>
                 <label className="mb-1 block text-sm font-medium text-dark dark:text-white">
                   Nombre
@@ -1155,7 +767,6 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                   className="w-full rounded-xl border border-stroke bg-transparent px-3 py-2 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
                 />
               </div>
-
             </div>
 
             <div className="mt-3">
@@ -1191,30 +802,45 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                       const price = parseDecimalInput(row.price);
                       const total = weight * price;
                       return (
-                        <tr key={`${row.name}-${index}`} className="border-t border-stroke dark:border-dark-3">
+                        <tr
+                          key={`${row.name}-${index}`}
+                          className="border-t border-stroke dark:border-dark-3"
+                        >
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-2">
                               <select
                                 value={row.name}
-                                onChange={(e) => selectInventoryItem(index, e.target.value)}
+                                onChange={(e) =>
+                                  selectInventoryItem(index, e.target.value)
+                                }
                                 className="w-full rounded-lg border border-stroke bg-transparent px-2 py-1 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
                               >
                                 <option value="">Selecciona ingrediente</option>
                                 {inventoryProducts.map((item) => (
-                                  <option key={`${item.source}-${item.id}`} value={item.name}>
+                                  <option
+                                    key={`${item.source}-${item.id}`}
+                                    value={item.name}
+                                  >
                                     {item.name}
                                   </option>
                                 ))}
                               </select>
                               <span className="shrink-0 text-xs font-medium text-dark-6 dark:text-dark-6">
-                                {row.unit ? row.unit.replace(/mililitros/i, "ML").replace(/gramos/i, "GR").replace(/unidades/i, "Unidad") : "-"}
+                                {row.unit
+                                  ? row.unit
+                                      .replace(/mililitros/i, "ML")
+                                      .replace(/gramos/i, "GR")
+                                      .replace(/unidades/i, "Unidad")
+                                  : "-"}
                               </span>
                             </div>
                           </td>
                           <td className="px-3 py-2">
                             <input
                               value={row.weight}
-                              onChange={(e) => updateRecipeRow(index, "weight", e.target.value)}
+                              onChange={(e) =>
+                                updateRecipeRow(index, "weight", e.target.value)
+                              }
                               placeholder="0"
                               inputMode="decimal"
                               className="w-full rounded-lg border border-stroke bg-transparent px-2 py-1 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
@@ -1223,7 +849,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                           <td className="px-3 py-2">
                             <input
                               value={row.price}
-                              onChange={(e) => updateRecipeRow(index, "price", e.target.value)}
+                              onChange={(e) =>
+                                updateRecipeRow(index, "price", e.target.value)
+                              }
                               placeholder="0"
                               inputMode="decimal"
                               className="w-full rounded-lg border border-stroke bg-transparent px-2 py-1 text-sm text-dark outline-none transition focus:border-primary dark:border-dark-3 dark:text-white"
@@ -1239,7 +867,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                               className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2"
                               aria-label={`Eliminar ingrediente ${row.name || index + 1}`}
                             >
-                              <RiDeleteBinLine className="h-4 w-4" aria-hidden="true" />
+                              <RiDeleteBinLine
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
                             </button>
                           </td>
                         </tr>
@@ -1250,7 +881,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
               </div>
 
               {inventoryLoading ? (
-                <p className="mt-2 text-sm text-dark-6 dark:text-dark-6">Cargando inventario...</p>
+                <p className="mt-2 text-sm text-dark-6 dark:text-dark-6">
+                  Cargando inventario...
+                </p>
               ) : inventoryError ? (
                 <p className="mt-2 text-sm text-red">{inventoryError}</p>
               ) : null}
@@ -1266,11 +899,13 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                 <div className="flex flex-wrap gap-4">
                   <span>
                     Gramaje total:{" "}
-                    {new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(
-                      recipeTotals.gramaje,
-                    )}
+                    {new Intl.NumberFormat("es-CO", {
+                      maximumFractionDigits: 2,
+                    }).format(recipeTotals.gramaje)}
                   </span>
-                  <span>Total receta: {formatCopPrice(recipeTotals.costo)}</span>
+                  <span>
+                    Total receta: {formatCopPrice(recipeTotals.costo)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1278,7 +913,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={formMode === "edit" ? handleUpdateItem : handleCreateItem}
+                onClick={
+                  formMode === "edit" ? handleUpdateItem : handleCreateItem
+                }
                 disabled={submitStatus.kind === "loading"}
                 className={
                   "rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition " +
@@ -1297,57 +934,15 @@ export default function Menu({ items }: { items: MenuItem[] }) {
               </button>
 
               {submitStatus.kind === "error" && (
-                <p className="text-sm font-medium text-red">{submitStatus.message}</p>
+                <p className="text-sm font-medium text-red">
+                  {submitStatus.message}
+                </p>
               )}
               {submitStatus.kind === "success" && (
-                <p className="text-sm font-medium text-green">{submitStatus.message}</p>
+                <p className="text-sm font-medium text-green">
+                  {submitStatus.message}
+                </p>
               )}
-            </div>
-
-            <div className="mt-5">
-              <div className="mb-2 text-sm font-semibold text-dark dark:text-white">
-                Categorías
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {categoryOptions.map((category) => {
-                  const key = categoryKey(category);
-                  const count = localItems.filter((i) => categoryKey(i.category) === key)
-                    .length;
-                  const isCustom = customCategoryKeySet.has(key);
-                  const canDelete = isCustom && count === 0;
-
-                  return (
-                    <div
-                      key={category}
-                      className="inline-flex items-center gap-2 rounded-xl border border-stroke bg-gray-1 px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-white/5 dark:text-white"
-                    >
-                      <span className="whitespace-nowrap">{category}</span>
-                      <span className="text-xs text-dark-6 dark:text-dark-6">
-                        ({count})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCategory(category)}
-                        disabled={!canDelete}
-                        className={
-                          "inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2 " +
-                          (canDelete ? "" : "cursor-not-allowed opacity-50")
-                        }
-                        title={
-                          !isCustom
-                            ? "Categoría del sistema"
-                            : count > 0
-                              ? "Aún tiene items"
-                              : "Eliminar categoría"
-                        }
-                        aria-label={`Eliminar categoría ${category}`}
-                      >
-                        <RiDeleteBinLine className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           </div>
         </div>
@@ -1393,7 +988,10 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                     const price = parseDecimalInput(row.price);
                     const total = weight * price;
                     return (
-                      <tr key={`${row.name}-${index}`} className="border-t border-stroke dark:border-dark-3">
+                      <tr
+                        key={`${row.name}-${index}`}
+                        className="border-t border-stroke dark:border-dark-3"
+                      >
                         <td className="px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-dark dark:text-white">
@@ -1425,7 +1023,9 @@ export default function Menu({ items }: { items: MenuItem[] }) {
             </div>
 
             {inventoryLoading ? (
-              <p className="mt-3 text-sm text-dark-6 dark:text-dark-6">Cargando inventario...</p>
+              <p className="mt-3 text-sm text-dark-6 dark:text-dark-6">
+                Cargando inventario...
+              </p>
             ) : inventoryError ? (
               <p className="mt-3 text-sm text-red">{inventoryError}</p>
             ) : null}
@@ -1434,137 +1034,13 @@ export default function Menu({ items }: { items: MenuItem[] }) {
               <div className="flex flex-wrap gap-4">
                 <span>
                   Gramaje total:{" "}
-                  {new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(
-                    recipeTotals.gramaje,
-                  )}
+                  {new Intl.NumberFormat("es-CO", {
+                    maximumFractionDigits: 2,
+                  }).format(recipeTotals.gramaje)}
                 </span>
                 <span>Total receta: {formatCopPrice(recipeTotals.costo)}</span>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {tab === "restaurante" && (
-        <div className="mb-6">
-          <div className="flex flex-wrap gap-2">
-            {RESTAURANTE_NAV.map(({ label, Icon }) => {
-              const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!available}
-                  onClick={() => {
-                    if (!available) return;
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-primary hover:text-white dark:hover:bg-primary"
-                      : "cursor-not-allowed opacity-50")
-                  }
-                >
-                  <Icon className="h-5 w-5" aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-
-            {customCategoryLabels
-              .filter((label) => activeCategorySet.has(categoryKey(label)))
-              .map((label) => {
-              const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!available}
-                  onClick={() => {
-                    if (!available) return;
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-primary hover:text-white dark:hover:bg-primary"
-                      : "cursor-not-allowed opacity-50")
-                  }
-                >
-                  <PiBowlFoodFill className="h-5 w-5" aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {tab === "bar" && (
-        <div className="mb-6">
-          <div className="flex flex-wrap gap-2">
-            {BAR_NAV.map(({ label, Icon }) => {
-              const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!available}
-                  onClick={() => {
-                    if (!available) return;
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-secondary hover:text-white dark:hover:bg-secondary"
-                      : "cursor-not-allowed opacity-50")
-                  }
-                >
-                  <Icon className="h-5 w-5" aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-
-            {customCategoryLabels
-              .filter((label) => activeCategorySet.has(categoryKey(label)))
-              .map((label) => {
-              const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!available}
-                  onClick={() => {
-                    if (!available) return;
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-secondary hover:text-white dark:hover:bg-secondary"
-                      : "cursor-not-allowed opacity-50")
-                  }
-                >
-                  <FaGlassWater className="h-5 w-5" aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
           </div>
         </div>
       )}
@@ -1576,96 +1052,83 @@ export default function Menu({ items }: { items: MenuItem[] }) {
             : "Aún no hay items en esta sección."}
         </p>
       ) : (
-        <div className="space-y-6">
-          {grouped.map(([category, categoryItems]) => (
-            <section
-              key={category}
-              id={categoryToId(category)}
-              className="scroll-mt-24"
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {filteredItems.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-xl border border-stroke bg-white p-4 dark:border-dark-3 dark:bg-dark-2"
             >
-              <h3 className="mb-3 text-sm font-semibold tracking-wide text-dark-4 dark:text-dark-6">
-                {category}
-              </h3>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {categoryItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-xl border border-stroke bg-white p-4 dark:border-dark-3 dark:bg-dark-2"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h4 className="truncate text-lg font-semibold text-dark dark:text-white">
-                          {item.name}
-                        </h4>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <div className="rounded-lg bg-tertiary/20 px-3 py-1 text-sm font-semibold text-dark dark:bg-white/10 dark:text-white">
-                          {formatCopPrice(item.price)}
-                        </div>
-                        <Tooltip label={`Receta ${item.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => openRecipeModal(item)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
-                            aria-label={`Receta ${item.name}`}
-                          >
-                            <span className="sr-only">{`Receta ${item.name}`}</span>
-                            <GrDocumentText className="h-5 w-5" aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={`Editar ${item.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => startEdit(item)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
-                            aria-label={`Editar ${item.name}`}
-                          >
-                            <span className="sr-only">{`Editar ${item.name}`}</span>
-                            <RiEdit2Line className="h-5 w-5" aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={`Eliminar ${item.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            disabled={deletingIds.has(item.id)}
-                            className={
-                              "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2 " +
-                              (deletingIds.has(item.id)
-                                ? "cursor-not-allowed opacity-60"
-                                : "")
-                            }
-                            aria-label={`Eliminar ${item.name}`}
-                          >
-                            <span className="sr-only">{`Eliminar ${item.name}`}</span>
-                            <RiDeleteBinLine className="h-5 w-5" aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </div>
-
-                    {(item.description ||
-                      (item.ingredients && item.ingredients.length > 0)) && (
-                      <div className="mt-3 space-y-2">
-                        {item.description && (
-                          <p className="text-body text-dark-6 dark:text-dark-6">
-                            {item.description}
-                          </p>
-                        )}
-                        {item.ingredients && item.ingredients.length > 0 && (
-                          <p className="text-body-sm text-dark-6 dark:text-dark-6">
-                            <span className="font-medium text-dark dark:text-white">
-                              Ingredientes:
-                            </span>{" "}
-                            {getIngredientNames(item.ingredients).join(", ")}
-                          </p>
-                        )}
-                      </div>
-                    )}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="truncate text-lg font-semibold text-dark dark:text-white">
+                    {item.name}
+                  </h4>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <div className="rounded-lg bg-tertiary/20 px-3 py-1 text-sm font-semibold text-dark dark:bg-white/10 dark:text-white">
+                    {formatCopPrice(item.price)}
                   </div>
-                ))}
+                  <Tooltip label={`Receta ${item.name}`}>
+                    <button
+                      type="button"
+                      onClick={() => openRecipeModal(item)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
+                      aria-label={`Receta ${item.name}`}
+                    >
+                      <span className="sr-only">{`Receta ${item.name}`}</span>
+                      <GrDocumentText className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label={`Editar ${item.name}`}>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(item)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
+                      aria-label={`Editar ${item.name}`}
+                    >
+                      <span className="sr-only">{`Editar ${item.name}`}</span>
+                      <RiEdit2Line className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip label={`Eliminar ${item.name}`}>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteItem(item.id)}
+                      disabled={deletingIds.has(item.id)}
+                      className={
+                        "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2 " +
+                        (deletingIds.has(item.id)
+                          ? "cursor-not-allowed opacity-60"
+                          : "")
+                      }
+                      aria-label={`Eliminar ${item.name}`}
+                    >
+                      <span className="sr-only">{`Eliminar ${item.name}`}</span>
+                      <RiDeleteBinLine className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
-            </section>
+
+              {(item.description ||
+                (item.ingredients && item.ingredients.length > 0)) && (
+                <div className="mt-3 space-y-2">
+                  {item.description && (
+                    <p className="text-body text-dark-6 dark:text-dark-6">
+                      {item.description}
+                    </p>
+                  )}
+                  {item.ingredients && item.ingredients.length > 0 && (
+                    <p className="text-body-sm text-dark-6 dark:text-dark-6">
+                      <span className="font-medium text-dark dark:text-white">
+                        Ingredientes:
+                      </span>{" "}
+                      {getIngredientNames(item.ingredients).join(", ")}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}

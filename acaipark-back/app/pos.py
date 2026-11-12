@@ -19,21 +19,6 @@ INC_RATE = Decimal("0.08")
 STORE_TIMEZONE = timezone(timedelta(hours=-5), name="America/Bogota")
 
 
-BAR_CATEGORY_KEYS = {
-    "bebidas",
-    "sodas",
-    "gaseosas",
-    "para el almuerzo",
-    "cervezas nacionales",
-    "cervezas internacionales",
-    "micheladas",
-    "licores y shots",
-    "cubetazos",
-    "cocteleria",
-    "vinos",
-}
-
-
 def _norm(value: str) -> str:
     return value.strip().lower()
 
@@ -72,14 +57,12 @@ def _resolve_order_item_details(
     """
     menu_item_id: int | None = None
     name = (item_payload.name or "Producto personalizado").strip()
-    category = (item_payload.category or "Toma de pedidos").strip()
     if item_payload.menu_item_id is not None:
         menu_item = _find_active_menu_item(db_session, item_payload.menu_item_id)
         if menu_item is not None:
             menu_item_id = menu_item.id
             name = menu_item.name
-            category = menu_item.category
-    return menu_item_id, name, category
+    return menu_item_id, name
 
 
 def _compute_order_totals(items: list[models.PosOrderItem], service_total: Decimal):
@@ -135,7 +118,6 @@ def _build_ticket_text(
     order_id: int,
     display_number: int | None,
     table_name: str,
-    zone_label: str,
     created_at: datetime,
     items: list[models.PosOrderItem],
 ) -> str:
@@ -144,7 +126,6 @@ def _build_ticket_text(
         "ACAIPARK POS",
         f"COMANDA #{display_number if display_number is not None else order_id:04d}",
         f"MESA: {table_name}",
-        f"ZONA: {zone_label}",
         f"FECHA: {created_local}",
         "-" * 40,
     ]
@@ -279,49 +260,26 @@ def _auto_print_comanda(
         logger.warning("POS_AUTO_PRINT_COMANDA activo pero POS_COMANDA_PRINTER vacio")
         return
 
-    split_by_zone = _env_bool("POS_COMANDA_SPLIT_BY_ZONE", default=True)
     copies_raw = (os.getenv("POS_COMANDA_COPIES") or "1").strip()
     try:
         copies = int(copies_raw)
     except ValueError:
         copies = 1
 
-    if split_by_zone:
-        zones: list[tuple[str, list[models.PosOrderItem]]] = [
-            ("COCINA", [i for i in items if str(i.zone).lower() != "bar"]),
-            ("BAR", [i for i in items if str(i.zone).lower() == "bar"]),
-        ]
-    else:
-        zones = [("GENERAL", list(items))]
-
-    for zone_label, zone_items in zones:
-        if not zone_items:
-            continue
-        ticket_text = _build_ticket_text(
-            order_id=order_id,
-            display_number=display_number,
-            table_name=table_name,
-            zone_label=zone_label,
-            created_at=created_at,
-            items=zone_items,
-        )
-        try:
-            _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, include_logo=False)
-            logger.info(
-                "Comanda #%s enviada a impresora '%s' (zona=%s, items=%s)",
-                order_id,
-                printer_hint,
-                zone_label,
-                len(zone_items),
-            )
-        except Exception as exc:
-            logger.warning(
-                "No se pudo imprimir comanda #%s en '%s' (zona=%s): %s",
-                order_id,
-                printer_hint,
-                zone_label,
-                exc,
-            )
+    if not items:
+        return
+    ticket_text = _build_ticket_text(
+        order_id=order_id,
+        display_number=display_number,
+        table_name=table_name,
+        created_at=created_at,
+        items=items,
+    )
+    try:
+        _send_text_to_windows_printer(text=ticket_text, printer_hint=printer_hint, copies=copies, include_logo=False)
+        logger.info("Comanda #%s enviada a impresora '%s' (items=%s)", order_id, printer_hint, len(items))
+    except Exception as exc:
+        logger.warning("No se pudo imprimir comanda #%s en '%s': %s", order_id, printer_hint, exc)
 
 
 def _auto_print_sale_receipt(
@@ -441,7 +399,6 @@ def _create_sale_from_order(
             {
                 "menu_item_id": item.menu_item_id,
                 "name": item.name,
-                "category": item.category,
                 "quantity": item.quantity,
                 "unit_price": item.unit_price,
                 "tax_rate": item.tax_rate,
@@ -487,7 +444,6 @@ def _create_sale_from_order(
                 else None
             ),
             name=str(payload["name"]),
-            category=str(payload["category"]),
             quantity=Decimal(payload["quantity"]),
             unit_price=Decimal(payload["unit_price"]),
             tax_rate=Decimal(payload["tax_rate"]),
@@ -619,13 +575,8 @@ def create_order(
     now = datetime.now(timezone.utc)
 
     for item_payload in payload.items:
-        menu_item_id, menu_item_name, menu_item_category = _resolve_order_item_details(
+        menu_item_id, menu_item_name = _resolve_order_item_details(
             db_session, item_payload
-        )
-        zone = (
-            "bar"
-            if _norm(menu_item_category) in BAR_CATEGORY_KEYS
-            else "kitchen"
         )
 
         qty = Decimal(item_payload.quantity)
@@ -652,8 +603,6 @@ def create_order(
             order_id=order.id,
             menu_item_id=menu_item_id,
             name=menu_item_name,
-            category=menu_item_category,
-            zone=zone,
             quantity=qty,
             unit_price=unit_price,
             tax_rate=tax_rate,
@@ -710,7 +659,7 @@ def update_order_for_payment(
     items: list[models.PosOrderItem] = []
     now = datetime.now(timezone.utc)
     for item_payload in payload.items:
-        menu_item_id, name, category = _resolve_order_item_details(db_session, item_payload)
+        menu_item_id, name = _resolve_order_item_details(db_session, item_payload)
         quantity = Decimal(item_payload.quantity)
         unit_price = Decimal(item_payload.unit_price)
         discount_amount = Decimal(item_payload.discount_amount)
@@ -729,8 +678,6 @@ def update_order_for_payment(
             order_id=order.id,
             menu_item_id=menu_item_id,
             name=name,
-            category=category,
-            zone="bar" if _norm(category) in BAR_CATEGORY_KEYS else "kitchen",
             quantity=quantity,
             unit_price=unit_price,
             tax_rate=Decimal("0"),

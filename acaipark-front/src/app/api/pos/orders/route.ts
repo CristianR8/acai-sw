@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 type OrderItemCreate = {
   menu_item_id?: number | null;
   name?: string | null;
-  category?: string | null;
   quantity?: number | string;
   unit_price?: number | string;
   tax_rate?: number | string;

@@ -42,7 +42,7 @@ class SalesProductSummaryTests(unittest.TestCase):
         self.session.close()
         self.engine.dispose()
 
-    def add_sale(self, name, menu_item_id=None, quantity=1, status='active', day=15, note=None):
+    def add_sale(self, name, menu_item_id=None, quantity=1, status='active', day=15, note=None, category='Otros'):
         order = models.PosOrder(table_id=self.table_id)
         self.session.add(order)
         self.session.flush()
@@ -52,13 +52,13 @@ class SalesProductSummaryTests(unittest.TestCase):
         self.session.flush()
         self.session.add(models.SaleItem(
             sale_id=sale.id, menu_item_id=menu_item_id, name=name,
-            category='Otros', quantity=quantity, unit_price=10000,
+            category=category, quantity=quantity, unit_price=10000,
             tax_rate=0, line_subtotal=total, line_tax=0, line_total=total,
         ))
         if note is not None:
             self.session.add(models.PosOrderItem(
                 order_id=order.id, menu_item_id=menu_item_id, name=name,
-                category='Otros', zone='bar', quantity=quantity,
+                category=category, zone='bar', quantity=quantity,
                 unit_price=10000, note=note,
             ))
         self.session.commit()
@@ -100,3 +100,20 @@ class SalesProductSummaryTests(unittest.TestCase):
 
     def test_empty_period_returns_an_empty_list(self):
         self.assertEqual(self.summary(), [])
+
+    def test_historical_categories_do_not_split_the_same_product(self):
+        self.add_sale('Producto registrado', self.product_id, quantity=2, category='Bebidas')
+        self.add_sale('Producto registrado', self.product_id, quantity=3, category='Sodas')
+        row, = self.summary()
+        self.assertEqual(row['name'], 'Producto registrado')
+        self.assertEqual(Decimal(row['quantity']), 5)
+        self.assertEqual(Decimal(row['total']), 50000)
+        self.assertNotIn('category', row)
+
+    def test_different_bases_remain_separate_without_categories(self):
+        self.add_sale('Açaí personalizado', quantity=1, note='Configurado: Vaso 12 oz; Base: Yogurt', category='Açaí')
+        self.add_sale('Açaí personalizado', quantity=2, note='Configurado: Vaso 12 oz; Base: Açaí', category='Otros')
+        rows = self.summary()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row['base'] for row in rows}, {'Yogurt', 'Açaí'})
+        self.assertEqual(sum(Decimal(row['total']) for row in rows), 30000)

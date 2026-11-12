@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 type MenuItemUpdateBody = {
   name?: string;
-  category?: string;
   price?: string | number;
   description?: string | null;
   ingredients?: MenuItemIngredient[] | string[] | null;
@@ -72,9 +71,9 @@ export async function PUT(
     return NextResponse.json({ message: "ID inválido" }, { status: 400 });
   }
 
-  const body = (await request.json().catch(() => null)) as
-    | MenuItemUpdateBody
-    | null;
+  const body = (await request
+    .json()
+    .catch(() => null)) as MenuItemUpdateBody | null;
   if (!body) {
     return NextResponse.json(
       { message: "Body inválido (JSON requerido)" },
@@ -83,12 +82,11 @@ export async function PUT(
   }
 
   const name = (body.name ?? "").trim();
-  const category = (body.category ?? "").trim();
   const price = body.price;
 
-  if (!name || !category || price === undefined || price === null || price === "") {
+  if (!name || price === undefined || price === null || price === "") {
     return NextResponse.json(
-      { message: "Nombre, categoría y precio son requeridos" },
+      { message: "Nombre y precio son requeridos" },
       { status: 400 },
     );
   }
@@ -103,7 +101,6 @@ export async function PUT(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name,
-        category,
         price,
         description: body.description ?? null,
         ingredients: body.ingredients ?? null,
@@ -126,8 +123,10 @@ export async function PUT(
 
   if (!response.ok) {
     const message =
-      (typeof (payload as any)?.detail === "string" && (payload as any).detail) ||
-      (typeof (payload as any)?.message === "string" && (payload as any).message) ||
+      (typeof (payload as any)?.detail === "string" &&
+        (payload as any).detail) ||
+      (typeof (payload as any)?.message === "string" &&
+        (payload as any).message) ||
       "No se pudo editar el item";
 
     return NextResponse.json(
