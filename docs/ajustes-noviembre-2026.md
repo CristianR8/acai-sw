@@ -40,3 +40,7 @@ Se añade `purchases.payment_method`, nullable para datos históricos. Las tabla
 - Gastos al principio: el historial con su total y análisis se presenta ahora antes del formulario de registro.
 - PyG: verificado mediante pruebas de conciliación de ventas, compras y gastos, categorías, períodos, anulaciones y exportación. Los abonos no duplican costos. El resultado sigue siendo provisional mientras no se ingresen inventarios inicial/final, limitación ya indicada en el informe.
 - Por instrucción del usuario, no se ejecuta `docker compose up` ni se activa la versión local.
+
+## Organización final de gastos
+
+Por solicitud posterior, Registrar gasto (`/expenses`) contiene únicamente el formulario y la creación de tipos de gasto para futuros registros. Informe de gastos (`/expenses/report`) concentra el historial completo, filtros, resumen, gráfica y edición/anulación. El historial comparte el período del informe y actualiza sus totales al editar o anular. Esta distribución reemplaza la ubicación anterior del historial sobre el formulario.

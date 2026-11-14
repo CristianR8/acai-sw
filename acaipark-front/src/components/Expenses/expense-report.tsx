@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { currentMonthRange } from "@/components/DateRangeFilter";
 import PeriodFilter from "@/components/PeriodFilter";
 import ExpenseSpendingChart from "./expense-spending-chart";
+import ExpenseHistory from "./expense-history";
 import { money, numericAmount, type ExpensePayment } from "./shared";
 
 export default function ExpenseReport() {
@@ -102,6 +103,7 @@ export default function ExpenseReport() {
         </div>
       </section>
       <ExpenseSpendingChart range={range} reloadToken={retryToken} />
+      <ExpenseHistory range={range} onChanged={() => setRetryToken((value) => value + 1)} />
     </div>
   );
 }

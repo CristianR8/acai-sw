@@ -1,6 +1,6 @@
 "use client";
 
-import { currentMonthRange } from "@/components/DateRangeFilter";
+import { currentMonthRange, type DateRange } from "@/components/DateRangeFilter";
 import PeriodFilter from "@/components/PeriodFilter";
 import ExpensePaymentEditRow from "./expense-payment-edit-row";
 import { EXPENSE_TYPE_LABELS, money, type ExpensePayment } from "./shared";
@@ -10,8 +10,12 @@ import { defaultExpenseFilters, filterExpenses, groupExpenses, type ExpenseFilte
 
 export default function ExpenseHistory({
   reloadToken = 0,
+  range: reportRange,
+  onChanged,
 }: {
   reloadToken?: number;
+  range?: DateRange;
+  onChanged?: () => void;
 }) {
   const [payments, setPayments] = useState<ExpensePayment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +27,8 @@ export default function ExpenseHistory({
   );
   const [filters, setFilters] = useState(defaultExpenseFilters);
   const [groupBy, setGroupBy] = useState<"category" | "name">("category");
-  const [range, setRange] = useState(currentMonthRange);
+  const [localRange, setRange] = useState(currentMonthRange);
+  const range = reportRange ?? localRange;
   const activeRange = useRef(range);
   const [savedPaymentId, setSavedPaymentId] = useState<number | null>(null);
 
@@ -100,6 +105,7 @@ export default function ExpenseHistory({
         ),
       );
       setMessage("Gasto anulado correctamente.");
+      onChanged?.();
     } catch {
       setMessage(
         "No se pudo anular el gasto. Revisa tu conexión e inténtalo nuevamente.",
@@ -128,7 +134,7 @@ export default function ExpenseHistory({
             </p>
           </div>
         </div>
-        <PeriodFilter value={range} onChange={setRange} />
+        {!reportRange ? <PeriodFilter value={range} onChange={setRange} /> : null}
         <label className="mb-5 block text-sm font-medium text-dark dark:text-white">
           Buscar por nombre, categoría o concepto
           <input
@@ -207,6 +213,7 @@ export default function ExpenseHistory({
                         payment={payment}
                         onCancel={() => setEditingPayment(null)}
                         onSaved={(updated) => {
+                          onChanged?.();
                           setPayments((current) =>
                             current
                               .map((item) =>

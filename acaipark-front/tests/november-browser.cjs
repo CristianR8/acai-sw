@@ -60,6 +60,10 @@ const fs = require("node:fs");
   try {
     console.log("Browser connected; opening expense screen");
     await page.goto(`${base}/expenses`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Registrar gasto", exact: true }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "Historial de gastos" }).count(), 0);
+    await page.getByRole("button", { name: /Agregar tipo de gasto/ }).waitFor();
+    await page.goto(`${base}/expenses/report`, { waitUntil: "domcontentloaded" });
     await page.getByRole("heading", { name: "Historial de gastos" }).waitFor();
     await page.getByLabel(/^Categoría/).selectOption("Nómina");
     await page.getByLabel(/^Estado/).selectOption("manual");
