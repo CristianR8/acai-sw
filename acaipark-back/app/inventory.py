@@ -497,8 +497,8 @@ def create_purchase(
             supplier_ids.add(supplier_id)
             product.supplier_id = supplier_id
         qty = _as_decimal(item.quantity)
-        unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
-        line_total = (qty * unit_cost).quantize(Decimal("1"))
+        line_total = (item.line_total if item.line_total is not None else qty * _as_decimal(item.unit_cost)).quantize(Decimal("0.01"))
+        unit_cost = (line_total / qty).quantize(Decimal("0.0001"))
         total += line_total
 
         purchase_item = models.PurchaseItem(
@@ -534,7 +534,9 @@ def create_purchase(
         db_session.add(movement)
         db_session.add(product)
 
-    purchase.total_cost = total.quantize(Decimal("1"))
+    purchase.total_cost = total.quantize(Decimal("0.01"))
+    from .purchase_payments import set_initial_payment
+    set_initial_payment(purchase, payload)
     if supplier_ids:
         purchase.supplier_id = supplier_ids.pop() if len(supplier_ids) == 1 else None
     db_session.add(purchase)
@@ -624,7 +626,7 @@ def _reverse_purchase_inventory(db_session: Session, purchase: models.Purchase, 
 def update_purchase(purchase_id: int, payload: schemas.PurchaseUpdate, db_session: Session = Depends(db.get_db)):
     purchase = db_session.query(models.Purchase).options(
         joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product)
-    ).filter(models.Purchase.id == purchase_id).first()
+    ).filter(models.Purchase.id == purchase_id).with_for_update(of=models.Purchase).first()
     if not purchase:
         raise HTTPException(status_code=404, detail="Compra no encontrada")
     if purchase.status == "void":
@@ -665,8 +667,8 @@ def update_purchase(purchase_id: int, payload: schemas.PurchaseUpdate, db_sessio
             supplier_ids.add(supplier_id)
             product.supplier_id = supplier_id
         qty = _as_decimal(item.quantity)
-        unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
-        line_total = (qty * unit_cost).quantize(Decimal("1"))
+        line_total = (item.line_total if item.line_total is not None else qty * _as_decimal(item.unit_cost)).quantize(Decimal("0.01"))
+        unit_cost = (line_total / qty).quantize(Decimal("0.0001"))
         total += line_total
         purchase.items.append(models.PurchaseItem(
             product_id=product.id, supplier_id=supplier_id, quantity=qty, unit_cost=unit_cost,
@@ -683,9 +685,23 @@ def update_purchase(purchase_id: int, payload: schemas.PurchaseUpdate, db_sessio
             reason="purchase edit", reference_type="purchase", reference_id=purchase.id,
         ))
         db_session.add(product)
-    purchase.total_cost = total.quantize(Decimal("1"))
+    purchase.total_cost = total.quantize(Decimal("0.01"))
+    from .purchase_payments import set_initial_payment
+    set_initial_payment(purchase, payload)
     if supplier_ids:
         purchase.supplier_id = supplier_ids.pop() if len(supplier_ids) == 1 else None
+    db_session.commit()
+    db_session.refresh(purchase)
+    return purchase
+
+
+@router.post("/purchases/{purchase_id}/payments", response_model=schemas.PurchaseOut, status_code=201)
+def register_purchase_payment(purchase_id: int, payload: schemas.PurchasePaymentCreate, db_session: Session = Depends(db.get_db)):
+    from .purchase_payments import add_payment
+    purchase = db_session.query(models.Purchase).filter(models.Purchase.id == purchase_id).with_for_update().first()
+    if not purchase:
+        raise HTTPException(404, "Compra no encontrada")
+    add_payment(purchase, payload)
     db_session.commit()
     db_session.refresh(purchase)
     return purchase
@@ -695,7 +711,7 @@ def update_purchase(purchase_id: int, payload: schemas.PurchaseUpdate, db_sessio
 def void_purchase(purchase_id: int, db_session: Session = Depends(db.get_db)):
     purchase = db_session.query(models.Purchase).options(
         joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product)
-    ).filter(models.Purchase.id == purchase_id).first()
+    ).filter(models.Purchase.id == purchase_id).with_for_update(of=models.Purchase).first()
     if not purchase:
         raise HTTPException(status_code=404, detail="Compra no encontrada")
     if purchase.status == "void":
@@ -1176,5 +1192,15 @@ def export_purchases_xlsx(
                     float(item.unit_cost),
                     float(item.line_total),
                 ])
+
+        from .purchase_payments import METHOD_LABELS
+        payments = wb.create_sheet("Pagos y saldos")
+        payments.append(["Compra", "Factura", "Naturaleza", "Total compra", "Total pagado", "Saldo", "Estado"])
+        detail = wb.create_sheet("Detalle de pagos")
+        detail.append(["Compra", "Fecha de pago", "Medio de pago", "Monto", "Tipo"])
+        for purchase in purchases:
+            payments.append([purchase.id, purchase.invoice_id, METHOD_LABELS.get(purchase.payment_method, "Sin clasificar"), float(purchase.total_cost), float(purchase.paid_amount), float(purchase.balance), {"paid": "Pagada", "partial": "Abono", "credit": "Crédito", "unclassified": "Sin clasificar"}[purchase.payment_status]])
+            for payment in purchase.payments:
+                detail.append([purchase.id, payment.payment_date.isoformat(), METHOD_LABELS[payment.payment_method], float(payment.amount), "Inicial" if payment.is_initial else "Abono"])
 
     return _xlsx_response("historial-compras.xlsx", build)

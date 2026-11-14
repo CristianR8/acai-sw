@@ -6,7 +6,7 @@ export function PointerScroll({ children }: PropsWithChildren) {
   const pointerY = useRef<number | null>(null);
 
   const interactiveTarget = (target: EventTarget | null) =>
-    target instanceof Element && Boolean(target.closest("button, a, input, select, textarea, label, [role='dialog']"));
+    target instanceof Element && Boolean(target.closest("button, a, input, select, textarea, label, summary, [role='dialog']"));
 
   return (
     <div

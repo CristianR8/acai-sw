@@ -10,6 +10,9 @@ type PurchaseItemCreate = {
 };
 
 type PurchaseCreateBody = {
+  payment_method?: string | null;
+  initial_payment_amount?: number | string | null;
+  payment_date?: string;
   supplier_id?: number | null;
   invoice_id?: string | null;
   purchased_at?: string;
@@ -120,6 +123,9 @@ export async function POST(request: Request) {
         invoice_id: body.invoice_id ?? null,
         purchased_at: body.purchased_at,
         received_at: body.received_at,
+        payment_method: body.payment_method,
+        initial_payment_amount: body.initial_payment_amount,
+        payment_date: body.payment_date,
         items: body.items,
       }),
     });

@@ -21,6 +21,26 @@ class ExpenseType(str, Enum):
     operacional_fijo = "operacional_fijo"
 
 
+class PurchasePaymentMethod(str, Enum):
+    cash = "cash"
+    credit = "credit"
+    transfer = "transfer"
+    cash_drawer = "cash_drawer"
+
+
+class PurchasePaymentCreate(BaseModel):
+    payment_date: date
+    payment_method: PurchasePaymentMethod
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+
+
+class PurchasePaymentOut(PurchasePaymentCreate):
+    id: int
+    is_initial: bool
+
+    model_config = {"from_attributes": True}
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -177,6 +197,7 @@ class PurchaseItemCreate(BaseModel):
     supplier_id: int | None = None
     quantity: Decimal = Field(gt=0)
     unit_cost: Decimal = Field(ge=0)
+    line_total: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
 
 
 class PurchaseCreate(BaseModel):
@@ -184,6 +205,9 @@ class PurchaseCreate(BaseModel):
     invoice_id: str | None = Field(default=None, max_length=100)
     purchased_at: datetime | None = None
     received_at: datetime | None = None
+    payment_method: PurchasePaymentMethod | None = None
+    initial_payment_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    payment_date: date | None = None
     items: list[PurchaseItemCreate] = Field(min_length=1)
 
 
@@ -214,6 +238,11 @@ class PurchaseOut(BaseModel):
     purchased_at: datetime | None
     received_at: datetime | None
     total_cost: Decimal
+    payment_method: PurchasePaymentMethod | None = None
+    paid_amount: Decimal = Decimal(0)
+    balance: Decimal = Decimal(0)
+    payment_status: str = "unclassified"
+    payments: list[PurchasePaymentOut] = Field(default_factory=list)
     status: str = "manual"
     created_at: datetime
     items: list[PurchaseItemOut]
@@ -503,6 +532,11 @@ class SaleItemOut(BaseModel):
         orm_mode = True
 
 
+class SalePaymentMethodUpdate(BaseModel):
+    payment_method: PaymentMethod
+    previous_payment_method: PaymentMethod | None
+
+
 class SaleOut(BaseModel):
     id: int
     order_id: int
@@ -548,9 +582,26 @@ class CashClosingUpdate(BaseModel):
     denomination_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class CashOutflowOut(BaseModel):
+    reference: str
+    name: str
+    concept: str
+    amount: Decimal
+
+
+class ClosingProductOut(BaseModel):
+    name: str
+    quantity: Decimal
+    total: Decimal
+
+
 class CashClosingOut(DailyPaymentMethodSummaryOut):
     opening_total: Decimal
     expenses_total: Decimal
+    purchases_total: Decimal = Decimal(0)
+    outflows: list[CashOutflowOut] = Field(default_factory=list)
+    sales_count: int = 0
+    products: list[ClosingProductOut] = Field(default_factory=list)
     expected_cash: Decimal
     denomination_counts: dict[str, int]
     physical_cash: Decimal

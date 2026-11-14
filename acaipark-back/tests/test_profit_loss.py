@@ -127,9 +127,9 @@ class ProfitLossTests(unittest.TestCase):
         self.assertIn('GASTOS Y SALIDAS DE CAJA', labels)
         for label in ['EFECTIVO RECIBIDO (BILLETES Y MONEDAS)', 'RESUMEN DE VENTAS Y MEDIOS DE PAGO', 'CONCILIACIÓN FINAL DE CAJA', 'OBSERVACIONES / NOVEDADES DEL TURNO']:
             self.assertIn(label, labels)
-        expense_row = next(row for row in sheet if row[0].value == 'Gastos registrados del día')
+        expense_row = next(row for row in sheet if row[0].value == 'Gastos y compras pagadas con efectivo caja')
         section_row = next(row[0].row for row in sheet if row[0].value == 'GASTOS Y SALIDAS DE CAJA')
-        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL GASTOS CAJA')
+        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL SALIDAS DE CAJA (GASTOS + COMPRAS)')
         detail = list(sheet.iter_rows(min_row=section_row + 2, max_row=total_row - 1))
         self.assertEqual(len(detail), 6)
         self.assertEqual(sum(Decimal(str(row[5].value)) for row in detail), closing.expenses_total)
@@ -146,7 +146,7 @@ class ProfitLossTests(unittest.TestCase):
         sheet = load_workbook(BytesIO(sales.export_daily_payment_methods_xlsx(day, self.session).body)).active
         empty_row = next(row for row in sheet if row[0].value == 'Sin gastos registrados')
         self.assertEqual(empty_row[5].value, 0)
-        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL GASTOS CAJA')
+        total_row = next(row[0].row for row in sheet if row[0].value == 'TOTAL SALIDAS DE CAJA (GASTOS + COMPRAS)')
         self.assertEqual(sheet.cell(total_row, 6).value, f'=SUM(F{empty_row[0].row}:F{empty_row[0].row})')
         self.assertEqual(sales.get_cash_closing(day, self.session).expenses_total, 0)
 

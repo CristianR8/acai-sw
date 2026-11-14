@@ -6,13 +6,7 @@ import ExpensePaymentEditRow from "./expense-payment-edit-row";
 import { EXPENSE_TYPE_LABELS, money, type ExpensePayment } from "./shared";
 import { useEffect, useRef, useState } from "react";
 import { FaRegEdit } from "react-icons/fa";
-
-function normalizeName(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("es");
-}
+import { defaultExpenseFilters, filterExpenses, groupExpenses, type ExpenseFilters } from "@/lib/expense-analysis";
 
 export default function ExpenseHistory({
   reloadToken = 0,
@@ -27,7 +21,8 @@ export default function ExpenseHistory({
   const [editingPayment, setEditingPayment] = useState<ExpensePayment | null>(
     null,
   );
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState(defaultExpenseFilters);
+  const [groupBy, setGroupBy] = useState<"category" | "name">("category");
   const [range, setRange] = useState(currentMonthRange);
   const activeRange = useRef(range);
   const [savedPaymentId, setSavedPaymentId] = useState<number | null>(null);
@@ -72,10 +67,13 @@ export default function ExpenseHistory({
     return () => controller.abort();
   }, [range, reloadToken, retryToken]);
 
-  const normalizedSearch = normalizeName(search.trim());
-  const visiblePayments = payments.filter((payment) =>
-    normalizeName(payment.name).includes(normalizedSearch),
-  );
+  const visiblePayments = filterExpenses(payments, filters);
+  const groups = groupExpenses(visiblePayments, groupBy);
+  const filteredTotal = groups.reduce((sum, group) => sum + group.amount, 0);
+  function changeFilter(key: keyof ExpenseFilters, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setEditingPayment(null);
+  }
 
   async function voidPayment(payment: ExpensePayment) {
     if (
@@ -132,18 +130,32 @@ export default function ExpenseHistory({
         </div>
         <PeriodFilter value={range} onChange={setRange} />
         <label className="mb-5 block text-sm font-medium text-dark dark:text-white">
-          Buscar gastos por nombre
+          Buscar por nombre, categoría o concepto
           <input
             type="search"
-            value={search}
+            value={filters.search}
             onChange={(event) => {
-              setSearch(event.target.value);
+              changeFilter("search", event.target.value);
               setEditingPayment(null);
             }}
             placeholder="Ej. Arriendo, luz, mantenimiento..."
             className="mt-2 w-full rounded-md border border-stroke bg-transparent px-3 py-2.5 text-sm outline-none focus:border-primary dark:border-dark-3"
           />
         </label>
+        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <label className="text-sm">Categoría<select value={filters.category} onChange={(event) => changeFilter("category", event.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">Todas</option>{[...new Set(payments.map((payment) => payment.category))].sort().map((category) => <option key={category}>{category}</option>)}</select></label>
+          <label className="text-sm">Tipo de gasto<select value={filters.name} onChange={(event) => changeFilter("name", event.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">Todos</option>{[...new Set(payments.map((payment) => payment.name))].sort().map((name) => <option key={name}>{name}</option>)}</select></label>
+          <label className="text-sm">Clasificación<select value={filters.classification} onChange={(event) => changeFilter("classification", event.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">Todas</option>{Object.entries(EXPENSE_TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}<option value="unclassified">Sin clasificar</option></select></label>
+          <label className="text-sm">Estado<select value={filters.status} onChange={(event) => changeFilter("status", event.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">Todos</option><option value="manual">Registrados</option><option value="void">Anulados</option></select></label>
+          <label className="text-sm">Ordenar por<select value={filters.sort} onChange={(event) => changeFilter("sort", event.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="date_desc">Más recientes</option><option value="date_asc">Más antiguos</option><option value="amount_desc">Mayor gasto</option><option value="amount_asc">Menor gasto</option><option value="name">Nombre</option></select></label>
+        </div>
+        <button type="button" onClick={() => { setFilters(defaultExpenseFilters); setEditingPayment(null); }} className="mb-4 rounded border px-3 py-2 text-sm">Limpiar filtros de análisis</button>
+        {!loading && !loadError ? <div className="mb-6 rounded-lg bg-primary/5 p-4">
+          <p className="font-semibold">{visiblePayments.length} registros · Total filtrado: {money(filteredTotal)}</p>
+          <p className="mt-1 text-xs text-body">Los anulados no suman. Rubros ordenados de mayor a menor; selecciona uno para ver sus registros.</p>
+          <label className="my-3 block text-sm">Agrupar por<select value={groupBy} onChange={(event) => setGroupBy(event.target.value as "category" | "name")} className="ml-2 rounded border bg-transparent p-2"><option value="category">Categoría</option><option value="name">Tipo de gasto</option></select></label>
+          <div className="flex flex-wrap gap-2">{groups.map((group) => <button type="button" key={group.name} onClick={() => changeFilter(groupBy, group.name)} className="rounded border bg-white px-3 py-2 text-left text-sm dark:bg-dark-2"><b>{group.name}: {money(group.amount)}</b><span className="block text-xs">{group.count} registros</span></button>)}</div>
+        </div> : null}
         {loadError ? (
           <div
             role="alert"
@@ -164,7 +176,7 @@ export default function ExpenseHistory({
           <p className="text-body rounded-lg border border-dashed border-stroke p-5 text-sm dark:border-dark-3">
             {payments.length === 0
               ? "No hay gastos registrados en el rango seleccionado."
-              : "No hay gastos que coincidan con ese nombre en el rango seleccionado."}
+              : "No hay gastos que coincidan con estos filtros en el rango seleccionado."}
           </p>
         ) : (
           <div className="overflow-x-auto">

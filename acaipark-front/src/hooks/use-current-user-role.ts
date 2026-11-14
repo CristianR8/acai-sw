@@ -4,10 +4,9 @@ import { readAuth, storeAuth, type UserRole } from "@/lib/auth/storage";
 import { useEffect, useState } from "react";
 
 export function useCurrentUserRole() {
-  const [role, setRole] = useState<UserRole | null>(
-    () => readAuth()?.role ?? null,
-  );
-  const [loading, setLoading] = useState(role === null);
+  // Keep the server and first client render identical; storage is read after mount.
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const auth = readAuth();
@@ -36,6 +35,7 @@ export function useCurrentUserRole() {
         setRole(profile.role);
         storeAuth({ ...auth, role: profile.role }, auth.remember ?? false);
       })
+      .catch(() => setRole(null))
       .finally(() => setLoading(false));
   }, []);
 

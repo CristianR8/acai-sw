@@ -8,8 +8,8 @@ export default function Expenses() {
   const [reloadToken, setReloadToken] = useState(0);
   return (
     <div className="space-y-6">
-      <ExpenseForm onSaved={() => setReloadToken((value) => value + 1)} />
       <ExpenseHistory reloadToken={reloadToken} />
+      <ExpenseForm onSaved={() => setReloadToken((value) => value + 1)} />
     </div>
   );
 }

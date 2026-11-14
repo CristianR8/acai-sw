@@ -1,20 +1,23 @@
 # Cierre diario de caja
 
-El administrador lee `sales.cash_denominations` (JSON de denominación a cantidad) y `cash_drawer_openings` de la misma base PostgreSQL que usa acai-cashier. No se crea una base independiente. Las aperturas se suman por fecha del reporte (consolidado de todos los cajeros), y las ventas se filtran por día calendario de Colombia. Los gastos corresponden a los registros manuales del módulo de gastos para esa fecha.
+El administrador usa las ventas y aperturas de la base PostgreSQL compartida con el cajero. Las ventas se filtran por día calendario de Bogotá. El cierre incluye los gastos manuales activos de esa fecha y los pagos de compras registrados como **Efectivo caja**, incluidos los abonos.
 
-En toma de pedidos, cada toque en un billete agrega una unidad. También se pueden modificar cantidades de billetes y monedas. El servidor verifica denominaciones, cantidades enteras no negativas y que el desglose coincida con el monto recibido. Otro valor y Pago exacto conservan el registro por monto, sin inventar denominaciones; el Excel avisa cuántos pagos no tienen desglose. Los pagos históricos tampoco se reconstruyen artificialmente.
+La conciliación usa:
 
-El Excel separa efectivo recibido de efectivo real al cierre: los billetes recibidos no descuentan cambio ni gastos. La base inicial + ventas en efectivo - gastos produce el efectivo esperado. La celda amarilla permite ingresar el conteo físico final en Excel para calcular la diferencia; este ingreso en el archivo descargado no se sincroniza a la base de datos. Si no existe apertura, la conciliación queda pendiente en lugar de asumir base cero.
+`Efectivo esperado = base inicial + ventas en efectivo − gastos − compras y abonos de caja`
 
-## Activación
+Las compras con Efectivo externo, Transferencia o Crédito no descuentan dinero del cajón. Los abonos se descuentan en su fecha de pago, que puede ser distinta de la fecha de compra. Las compras y gastos anulados se excluyen.
 
-Desplegar ambos repositorios (acai_sw y acai-cashier), incluyendo sus backends y frontends. Con `AUTO_MIGRATE_SCHEMA=1`, el arranque agrega de forma aditiva `sales.cash_denominations JSON`; `create_all` crea la tabla de aperturas si falta. Con migraciones automáticas desactivadas, aplicar previamente `ALTER TABLE sales ADD COLUMN IF NOT EXISTS cash_denominations JSON` y asegurar la tabla `cash_drawer_openings` según el modelo. Ambos backends deben usar la misma `DATABASE_URL`; la configuración Docker actual conecta el cajero a `acaipark-db` mediante `acai_shared`.
+## Conteo y exportaciones
 
-## Validación
+El conteo se precarga con `sales.cash_denomination_counts`. Estos billetes recibidos no representan por sí solos el efectivo final después de cambios, gastos y compras. El administrador puede ingresar el conteo físico y guardarlo en `cash_drawer_closings`.
 
-- `PYTHONPATH=acaipark-back python -m unittest discover -s acaipark-back/tests -p test_cash_closing.py`
-- TypeScript del administrador sin errores.
-- TypeScript del cajero comprobado en copia temporal con las dependencias instaladas del administrador y las declaraciones de Next; el repositorio del cajero no tiene node_modules instalado.
-- Persistencia del desglose comprobada también con los modelos y la función de ventas del cajero, usando SQLite temporal.
+La pantalla, Excel y PDF usan el conteo guardado. Los enlaces de descarga se habilitan cuando no hay cambios de conteo pendientes de guardar. El Excel conserva fórmulas de conciliación, lista cada salida con referencia/concepto/monto y permite varias páginas. Si falta apertura, indica que la conciliación está pendiente. El PDF también conserva todo el detalle en varias páginas.
 
-No se modificaron datos de producción ni se ejecutó un despliegue.
+El resumen inferior muestra número de ventas y cantidades por producto. Los totales diarios de Efectivo, Datáfono y Transferencia se consultan en **Ventas**, donde un administrador puede corregir el medio de pago de cada venta activa. La corrección conserva el total y se registra en auditoría; el cierre se recalcula al consultarlo o actualizarlo. Un conteo físico guardado no se sustituye automáticamente al corregir una venta.
+
+## Persistencia y pruebas
+
+`AUTO_CREATE_TABLES=1` y `AUTO_MIGRATE_SCHEMA=1` crean las tablas nuevas de pagos/auditoría y agregan `purchases.payment_method`. Las compras históricas quedan sin clasificar hasta que se confirme su naturaleza. No se generan pagos retrospectivos automáticamente.
+
+La cobertura por comentario, reglas de operación y comandos de prueba están en [Ajustes de noviembre de 2026](ajustes-noviembre-2026.md). Las pruebas de caja usan bases temporales y verifican conteos, conciliación, detalle de salidas, productos, Excel y PDF multipágina.

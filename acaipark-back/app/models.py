@@ -124,11 +124,29 @@ class Purchase(Base):
     received_at = Column(DateTime(timezone=True), nullable=True)
 
     total_cost = Column(Numeric(14, 4), nullable=False, default=0)
+    payment_method = Column(String(30), nullable=True)  # null = historical, unclassified
     status = Column(String(20), nullable=False, default="manual", index=True)  # manual|void
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     supplier = relationship("Supplier", back_populates="purchases")
     items = relationship("PurchaseItem", back_populates="purchase", cascade="all, delete-orphan")
+    payments = relationship("PurchasePayment", back_populates="purchase", cascade="all, delete-orphan", order_by="PurchasePayment.id")
+
+    @property
+    def paid_amount(self):
+        return sum((payment.amount for payment in self.payments), 0)
+
+    @property
+    def balance(self):
+        return self.total_cost - self.paid_amount
+
+    @property
+    def payment_status(self):
+        if self.payment_method is None and not self.payments:
+            return "unclassified"
+        if self.paid_amount >= self.total_cost:
+            return "paid"
+        return "partial" if self.paid_amount else "credit"
 
     @property
     def supplier_name(self) -> str | None:
@@ -146,6 +164,32 @@ class Purchase(Base):
         if len(names) > 1:
             return "Varios proveedores"
         return None
+
+
+class PurchasePayment(Base):
+    __tablename__ = "purchase_payments"
+
+    id = Column(Integer, primary_key=True)
+    purchase_id = Column(Integer, ForeignKey("purchases.id", ondelete="CASCADE"), nullable=False, index=True)
+    payment_date = Column(Date, nullable=False, index=True)
+    payment_method = Column(String(30), nullable=False)
+    amount = Column(Numeric(14, 2), nullable=False)
+    is_initial = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    purchase = relationship("Purchase", back_populates="payments")
+
+
+class SalePaymentMethodChange(Base):
+    __tablename__ = "sale_payment_method_changes"
+
+    id = Column(Integer, primary_key=True)
+    sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    previous_method = Column(String(30), nullable=True)
+    payment_method = Column(String(30), nullable=False)
+    previous_cash_received = Column(Numeric(14, 2), nullable=True)
+    previous_denomination_counts = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class PurchaseItem(Base):

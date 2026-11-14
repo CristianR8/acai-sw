@@ -20,6 +20,7 @@ def _auto_migrate_schema() -> None:
             conn.execute(text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS month_group_id INTEGER REFERENCES inventory_month_groups(id)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_items_month_group_id ON purchase_items(month_group_id)"))
             conn.execute(text("ALTER TABLE IF EXISTS purchases ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(100)"))
+            conn.execute(text("ALTER TABLE IF EXISTS purchases ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchases_invoice_id ON purchases(invoice_id)"))
             conn.execute(text("ALTER TABLE IF EXISTS purchases ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'manual'"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_purchases_status ON purchases(status)"))

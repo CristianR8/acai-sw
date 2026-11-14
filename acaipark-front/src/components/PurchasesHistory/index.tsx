@@ -1,11 +1,13 @@
 "use client";
 
+import PurchaseSummary from "./purchase-summary";
 import MonthFilter, { currentMonth, monthLastDay } from "@/components/MonthFilter";
 import DateRangeFilter, { currentMonthRange } from "@/components/DateRangeFilter";
 import { useEffect, useState } from "react";
+import PurchasePayments, { PAYMENT_METHODS, PAYMENT_STATUSES, businessToday, type PurchasePaymentInfo } from "./payments";
 import { FaRegEdit, FaRegTrashAlt } from "react-icons/fa";
 
-type Purchase = { id: number; invoice_id?: string | null; supplier_id?: number | null; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; status?: string; items: Array<{ id: number; product_id: number; product_name?: string | null; product_kind?: "ingredient" | "material" | null; supplier_id?: number | null; quantity: number | string; unit_cost: number | string; line_total: number | string }> };
+type Purchase = PurchasePaymentInfo & { id: number; invoice_id?: string | null; supplier_id?: number | null; supplier_name?: string | null; purchased_at?: string | null; received_at?: string | null; created_at: string; total_cost: number | string; status?: string; items: Array<{ id: number; product_id: number; product_name?: string | null; product_kind?: "ingredient" | "material" | null; supplier_id?: number | null; quantity: number | string; unit_cost: number | string; line_total: number | string }> };
 type Supplier = { id: number; name: string };
 type Product = { id: number; name: string; kind: "ingredient" | "material"; unit?: string | null };
 type PurchaseRow = { mode: "existing" | "new"; productId: string; productName: string; kind: "ingredient" | "material"; unit: string; supplierId: string; quantity: string; totalCost: string };
@@ -19,8 +21,7 @@ function money(value: unknown) {
 function date(value: string | null | undefined) { return value ? new Date(value).toLocaleDateString("es-CO") : "-"; }
 
 function localDateInputValue() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return businessToday();
 }
 
 function emptyRow(): PurchaseRow {
@@ -40,6 +41,12 @@ export default function PurchasesHistory() {
   const [reloadToken, setReloadToken] = useState(0);
   const [purchaseDate, setPurchaseDate] = useState(localDateInputValue());
   const [invoiceId, setInvoiceId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [initialAmount, setInitialAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(businessToday);
+  const [methodFilter, setMethodFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sortBy, setSortBy] = useState("date");
   const [rows, setRows] = useState<PurchaseRow[]>([emptyRow()]);
   const [useSameSupplier, setUseSameSupplier] = useState(true);
   const [sharedSupplierId, setSharedSupplierId] = useState("");
@@ -89,6 +96,9 @@ export default function PurchasesHistory() {
     setEditingPurchaseId(null);
     setPurchaseDate(localDateInputValue());
     setInvoiceId("");
+    setPaymentMethod("");
+    setInitialAmount("");
+    setPaymentDate(businessToday());
     setRows([emptyRow()]);
     setUseSameSupplier(true);
     setSharedSupplierId("");
@@ -119,6 +129,10 @@ export default function PurchasesHistory() {
     setEditingPurchaseId(purchase.id);
     setPurchaseDate(purchaseDateValue.slice(0, 10));
     setInvoiceId(purchase.invoice_id ?? "");
+    setPaymentMethod(purchase.payment_method ?? "");
+    const initial = purchase.payments?.find((payment) => payment.is_initial);
+    setInitialAmount(initial ? String(initial.amount) : "");
+    setPaymentDate(initial?.payment_date ?? purchaseDateValue.slice(0, 10));
     setUseSameSupplier(allSameSupplier);
     setSharedSupplierId(allSameSupplier ? supplierIds[0] : "");
     setRows(purchase.items.map((item) => ({ mode: "existing", productId: String(item.product_id), productName: "", kind: item.product_kind ?? "ingredient", unit: products.find((product) => product.id === item.product_id)?.unit ?? "", supplierId: item.supplier_id ? String(item.supplier_id) : "", quantity: String(item.quantity), totalCost: String(Math.round(Number(item.line_total) || (Number(item.quantity) * Number(item.unit_cost)))) })));
@@ -137,6 +151,9 @@ export default function PurchasesHistory() {
 
   async function registerPurchase() {
     if (!purchaseDate) { setFormMessage("Selecciona la fecha de compra."); return; }
+    if (!paymentMethod && !editingPurchaseId) { setFormMessage("Selecciona la naturaleza de la compra."); return; }
+    if (paymentMethod && paymentMethod !== "credit" && !paymentDate) { setFormMessage("Selecciona la fecha del pago inicial."); return; }
+    if (paymentMethod && paymentMethod !== "credit" && initialAmount !== "" && (!Number.isFinite(Number(initialAmount)) || Number(initialAmount) <= 0)) { setFormMessage("El pago inicial debe ser mayor que cero."); return; }
     const items: Array<Record<string, unknown>> = [];
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
@@ -146,18 +163,18 @@ export default function PurchasesHistory() {
       if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(total) || total <= 0) { setFormMessage(`Completa cantidad y costo total en la fila ${index + 1}.`); return; }
       if (row.mode === "existing") {
         if (!row.productId) { setFormMessage(`Selecciona un producto en la fila ${index + 1}.`); return; }
-        items.push({ product_id: Number(row.productId), supplier_id: supplierId ? Number(supplierId) : null, quantity, unit_cost: Math.round(total / quantity) });
+        items.push({ product_id: Number(row.productId), supplier_id: supplierId ? Number(supplierId) : null, quantity, unit_cost: Number((total / quantity).toFixed(4)), line_total: total });
       } else {
         if (!row.productName.trim() || (row.kind === "ingredient" && !row.unit)) { setFormMessage(`Completa el producto y la unidad en la fila ${index + 1}.`); return; }
-        items.push({ product_name: row.productName.trim(), product_kind: row.kind, unit: row.kind === "ingredient" ? row.unit : undefined, supplier_id: supplierId ? Number(supplierId) : null, quantity, unit_cost: Math.round(total / quantity) });
+        items.push({ product_name: row.productName.trim(), product_kind: row.kind, unit: row.kind === "ingredient" ? row.unit : undefined, supplier_id: supplierId ? Number(supplierId) : null, quantity, unit_cost: Number((total / quantity).toFixed(4)), line_total: total });
       }
     }
     setSaving(true);
     setFormMessage(null);
     try {
-      const response = await fetch(editingPurchaseId ? `/api/inventory/purchases/${editingPurchaseId}` : "/api/inventory/purchases", { method: editingPurchaseId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, invoice_id: invoiceId.trim() || null, purchased_at: `${purchaseDate}T12:00:00`, items }) });
+      const response = await fetch(editingPurchaseId ? `/api/inventory/purchases/${editingPurchaseId}` : "/api/inventory/purchases", { method: editingPurchaseId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ supplier_id: useSameSupplier && sharedSupplierId ? Number(sharedSupplierId) : null, invoice_id: invoiceId.trim() || null, purchased_at: `${purchaseDate}T12:00:00-05:00`, payment_method: paymentMethod || null, initial_payment_amount: paymentMethod === "credit" ? 0 : initialAmount === "" ? null : Number(initialAmount), payment_date: paymentDate, items }) });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) { setFormMessage(payload?.detail ?? payload?.message ?? `No se pudo ${editingPurchaseId ? "actualizar" : "registrar"} la compra.`); return; }
+      if (!response.ok) { setFormMessage((typeof payload?.detail === "string" ? payload.detail : payload?.message) ?? `No se pudo ${editingPurchaseId ? "actualizar" : "registrar"} la compra.`); return; }
       setShowForm(false);
       resetForm();
       setRange({ from: `${purchaseDate.slice(0, 7)}-01`, to: new Date(Number(purchaseDate.slice(0, 4)), Number(purchaseDate.slice(5, 7)), 0).toISOString().slice(0, 10) });
@@ -169,25 +186,43 @@ export default function PurchasesHistory() {
     }
   }
 
+  const visiblePurchases = purchases.filter((purchase) =>
+    (!methodFilter || (purchase.payment_method ?? "unclassified") === methodFilter) &&
+    (!statusFilter || (statusFilter === "void" ? purchase.status === "void" : purchase.status !== "void" && purchase.payment_status === statusFilter))
+  ).sort((a, b) => sortBy === "amount_desc" ? Number(b.total_cost) - Number(a.total_cost) : sortBy === "amount_asc" ? Number(a.total_cost) - Number(b.total_cost) : (b.purchased_at ?? b.created_at).localeCompare(a.purchased_at ?? a.created_at));
   return (
     <>
     <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
       <MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}>
         <DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} />
       </MonthFilter>
+      <div className="mb-6"><PurchaseSummary range={range} reloadToken={reloadToken} /></div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-xl font-semibold text-dark dark:text-white">Historial de compras</h2><p className="mt-1 text-sm text-body">Compras del rango seleccionado; las anuladas no cuentan como egreso.</p></div>
-        <button type="button" onClick={() => { setShowForm((value) => !value); setFormMessage(null); }} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Registrar compra</button>
+        <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">Registrar compra</button>
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-3">
+        <label className="text-sm">Medio de pago<select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="ml-2 rounded border bg-transparent p-2"><option value="">Todos</option><option value="unclassified">Sin clasificar</option>{Object.entries(PAYMENT_METHODS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className="text-sm">Estado de pago<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ml-2 rounded border bg-transparent p-2"><option value="">Todos</option>{Object.entries(PAYMENT_STATUSES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}<option value="void">Anuladas</option></select></label>
+        <label className="text-sm">Ordenar por<select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="ml-2 rounded border bg-transparent p-2"><option value="date">Más recientes</option><option value="amount_desc">Mayor valor</option><option value="amount_asc">Menor valor</option></select></label>
+      </div>
       {showForm ? (
         <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4 dark:bg-primary/10">
           <div className="mb-4 flex flex-wrap items-end gap-3">
-            <h3 className="w-full text-lg font-semibold text-dark dark:text-white">{editingPurchaseId ? `Editar compra #${editingPurchaseId}` : "Registrar compra"}</h3><label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">Fecha de compra<input type="date" value={purchaseDate} max={localDateInputValue()} onChange={(event) => setPurchaseDate(event.target.value)} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
+            <h3 className="w-full text-lg font-semibold text-dark dark:text-white">{editingPurchaseId ? `Editar compra #${editingPurchaseId}` : "Registrar compra"}</h3><label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">Fecha de compra<input type="date" value={purchaseDate} max={localDateInputValue()} onChange={(event) => { setPurchaseDate(event.target.value); if (!editingPurchaseId) setPaymentDate(event.target.value); }} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
             <label className="min-w-[180px] flex-1 text-sm font-medium text-dark dark:text-white">ID Factura<input value={invoiceId} maxLength={100} onChange={(event) => setInvoiceId(event.target.value)} placeholder="Código alfanumérico" className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></label>
             <label className="min-w-[220px] flex-1 text-sm font-medium text-dark dark:text-white">Proveedor para todos los productos<select value={sharedSupplierId} onChange={(event) => selectSharedSupplier(event.target.value)} disabled={!useSameSupplier} className="mt-1 w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark disabled:bg-gray-1 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:disabled:bg-dark-3"><option value="">Sin proveedor</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             <label className="flex items-center gap-2 pb-2 text-sm font-medium text-dark dark:text-white"><input type="checkbox" checked={useSameSupplier} onChange={(event) => changeSharedSupplierEnabled(event.target.checked)} />Usar el mismo proveedor en todas las filas</label>
           </div>
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <label className="text-sm font-medium">Naturaleza de la compra<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 w-full rounded border bg-white p-2 dark:bg-dark-2"><option value="">{editingPurchaseId ? "Sin clasificar (histórica)" : "Selecciona una opción"}</option>{Object.entries(PAYMENT_METHODS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            {paymentMethod && paymentMethod !== "credit" ? <>
+              <label className="text-sm font-medium">Pago inicial / abono<input type="number" min="0.01" step="0.01" value={initialAmount} onChange={(event) => setInitialAmount(event.target.value)} placeholder="Vacío = total pendiente" className="mt-1 w-full rounded border bg-white p-2 dark:bg-dark-2" /></label>
+              <label className="text-sm font-medium">Fecha del pago inicial<input type="date" value={paymentDate} min={purchaseDate} max={businessToday()} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 w-full rounded border bg-white p-2 dark:bg-dark-2" /></label>
+            </> : null}
+          </div>
+          <p className="mb-4 text-sm text-body">Efectivo caja descuenta el pago del cierre de esa fecha. Efectivo usa dinero externo a la caja. Crédito deja el saldo pendiente; registra los abonos desde el historial. Para un abono inicial, selecciona el medio y escribe el monto pagado.</p>
           <div className="mb-2 text-sm font-semibold text-dark dark:text-white">Productos comprados</div>
           <p className="mb-3 text-xs text-body">Agrega todos los productos de una misma compra. El costo unitario se calcula automáticamente.</p>
           <div className="space-y-3">
@@ -220,7 +255,7 @@ export default function PurchasesHistory() {
 
       <div className="mb-5 flex flex-wrap gap-3"><input value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Buscar compras del mes" placeholder="Buscar por proveedor, producto o número" className="min-w-[260px] flex-1 rounded-md border border-stroke px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white" /></div>
       {loadError ? <p role="alert" className="text-red">{loadError}</p> : null}
-      {loading ? <p className="text-sm text-body">Cargando compras...</p> : purchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[920px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">ID Factura</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th><th className="px-3 py-3 text-right">Acciones</th></tr></thead><tbody>{purchases.map((purchase) => { const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at; const purchaseMonth = purchaseDateValue.slice(0, 7); const isVoid = purchase.status === "void"; return <tr key={purchase.id} className={`border-b border-stroke dark:border-dark-3 ${isVoid ? "bg-gray-100/60 dark:bg-dark-2" : ""}`}><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}{isVoid ? <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs text-red">Anulada</span> : null}</td><td className="px-3 py-3 text-sm text-body">{purchase.invoice_id || "-"}</td><td className="px-3 py-3 text-sm text-body">{date(purchaseDateValue)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => <a key={item.id} href={`/inventory?month=${encodeURIComponent(purchaseMonth)}&purchaseItem=${item.id}${item.product_kind ? `&kind=${item.product_kind}` : ""}`} className="mr-2 inline-block text-primary hover:underline">{item.product_name || `#${item.id}`}</a>)}</td><td className={`px-3 py-3 text-right font-semibold text-dark dark:text-white ${isVoid ? "line-through" : ""}`}>{money(purchase.total_cost)}</td><td className="px-3 py-3 text-right">{!isVoid ? <div className="flex justify-end gap-2"><button type="button" onClick={() => startEdit(purchase)} title={`Editar compra #${purchase.id}`} aria-label={`Editar compra #${purchase.id}`} className="rounded-md border border-primary/40 p-1.5 text-primary hover:bg-primary/10"><FaRegEdit /></button><button type="button" onClick={() => void voidPurchase(purchase)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red hover:bg-red/10">Anular</button></div> : null}</td></tr>; })}</tbody></table></div>}
+      {loading ? <p className="text-sm text-body">Cargando compras...</p> : visiblePurchases.length === 0 ? <p className="text-sm text-body">No hay registros que coincidan.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[920px] table-auto"><thead><tr className="border-b border-stroke text-left text-xs uppercase text-dark-6 dark:border-dark-3"><th className="px-3 py-3">Compra</th><th className="px-3 py-3">ID Factura</th><th className="px-3 py-3">Fecha</th><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Productos</th><th className="px-3 py-3 text-right">Monto gastado</th><th className="px-3 py-3">Pagos y abonos</th><th className="px-3 py-3 text-right">Acciones</th></tr></thead><tbody>{visiblePurchases.map((purchase) => { const purchaseDateValue = purchase.purchased_at ?? purchase.received_at ?? purchase.created_at; const purchaseMonth = purchaseDateValue.slice(0, 7); const isVoid = purchase.status === "void"; return <tr key={purchase.id} className={`border-b border-stroke dark:border-dark-3 ${isVoid ? "bg-gray-100/60 dark:bg-dark-2" : ""}`}><td className="px-3 py-3 font-medium text-dark dark:text-white">#{purchase.id}{isVoid ? <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs text-red">Anulada</span> : null}</td><td className="px-3 py-3 text-sm text-body">{purchase.invoice_id || "-"}</td><td className="px-3 py-3 text-sm text-body">{date(purchaseDateValue)}</td><td className="px-3 py-3 text-sm text-body">{purchase.supplier_name ?? "Sin proveedor"}</td><td className="px-3 py-3 text-sm text-body">{purchase.items.map((item) => <a key={item.id} href={`/inventory?month=${encodeURIComponent(purchaseMonth)}&purchaseItem=${item.id}${item.product_kind ? `&kind=${item.product_kind}` : ""}`} className="mr-2 inline-block text-primary hover:underline">{item.product_name || `#${item.id}`}</a>)}</td><td className={`px-3 py-3 text-right font-semibold text-dark dark:text-white ${isVoid ? "line-through" : ""}`}>{money(purchase.total_cost)}</td><td className="px-3 py-3"><PurchasePayments purchase={purchase} onSaved={() => setReloadToken((value) => value + 1)} /></td><td className="px-3 py-3 text-right">{!isVoid ? <div className="flex justify-end gap-2"><button type="button" onClick={() => startEdit(purchase)} title={`Editar compra #${purchase.id}`} aria-label={`Editar compra #${purchase.id}`} className="rounded-md border border-primary/40 p-1.5 text-primary hover:bg-primary/10"><FaRegEdit /></button><button type="button" onClick={() => void voidPurchase(purchase)} className="rounded-md border border-red/40 px-2.5 py-1 text-xs font-semibold text-red hover:bg-red/10">Anular</button></div> : null}</td></tr>; })}</tbody></table></div>}
     </div>
     </>
   );

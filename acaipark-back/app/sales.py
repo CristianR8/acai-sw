@@ -12,11 +12,12 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas
 from .reporting_periods import month_bounds
 from .profit_loss import build_statement
+from .auth import get_current_user
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 COLOMBIA_TZ = ZoneInfo("America/Bogota")
@@ -128,15 +129,47 @@ def _automatic_cash_counts(day: date, db_session: Session) -> dict[str, int]:
     return counts
 
 
+def _cash_outflows(day: date, db_session: Session):
+    expenses = db_session.query(models.FixedExpensePayment).options(
+        joinedload(models.FixedExpensePayment.fixed_expense),
+    ).filter(models.FixedExpensePayment.status == "manual", models.FixedExpensePayment.due_date == day).order_by(models.FixedExpensePayment.id).all()
+    payments = db_session.query(models.PurchasePayment).join(models.Purchase).options(
+        joinedload(models.PurchasePayment.purchase).joinedload(models.Purchase.items).joinedload(models.PurchaseItem.product),
+        joinedload(models.PurchasePayment.purchase).joinedload(models.Purchase.supplier),
+    ).filter(models.Purchase.status != "void", models.PurchasePayment.payment_date == day,
+             models.PurchasePayment.payment_method == "cash_drawer").order_by(models.PurchasePayment.id).all()
+    rows = [schemas.CashOutflowOut(
+        reference=f"Gasto #{item.id}", name=item.fixed_expense.name if item.fixed_expense else "Gasto",
+        concept=item.concept or (item.fixed_expense.category if item.fixed_expense else ""), amount=item.amount,
+    ) for item in expenses]
+    for payment in payments:
+        purchase = payment.purchase
+        rows.append(schemas.CashOutflowOut(
+            reference=f"Compra #{purchase.id} / Pago #{payment.id}",
+            name=purchase.supplier_name or "Compra de insumos",
+            concept=" · ".join(filter(None, [purchase.invoice_id, ", ".join(item.product_name or str(item.product_id) for item in purchase.items), "Pago inicial" if payment.is_initial else "Abono"])),
+            amount=payment.amount,
+        ))
+    return rows, sum((item.amount for item in expenses), Decimal(0)), sum((item.amount for item in payments), Decimal(0))
+
+
 def _cash_closing(day: date, db_session: Session) -> schemas.CashClosingOut:
     totals = _daily_payment_summary(day, db_session)
     opening_total = sum((Decimal(item.opening_amount) for item in db_session.query(models.CashDrawerOpening).filter(models.CashDrawerOpening.business_date == day).all()), Decimal("0"))
-    expenses_total = sum((Decimal(item.amount) for item in db_session.query(models.FixedExpensePayment).filter(models.FixedExpensePayment.status == "manual", models.FixedExpensePayment.due_date == day).all()), Decimal("0"))
+    outflows, expenses_total, purchases_total = _cash_outflows(day, db_session)
     closing = db_session.query(models.CashDrawerClosing).filter(models.CashDrawerClosing.business_date == day).first()
     counts = _normalize_cash_counts(closing.denomination_counts) if closing and closing.denomination_counts else _automatic_cash_counts(day, db_session)
     physical_cash = sum((Decimal(value) * counts[str(value)] for value in CASH_DENOMINATIONS), Decimal("0")) + Decimal(counts["coins"])
-    expected_cash = opening_total + totals["cash"] - expenses_total
-    return schemas.CashClosingOut(date=day, cash_total=totals["cash"], transfer_total=totals["transfer"], dataphone_total=totals["dataphone"], total=totals["total"], opening_total=opening_total, expenses_total=expenses_total, expected_cash=expected_cash, denomination_counts=counts, physical_cash=physical_cash, difference=physical_cash - expected_cash)
+    expected_cash = opening_total + totals["cash"] - expenses_total - purchases_total
+    start = datetime.combine(day, time.min, tzinfo=COLOMBIA_TZ)
+    sales_count = db_session.query(func.count(models.Sale.id)).filter(models.Sale.status == "active", models.Sale.created_at >= start, models.Sale.created_at < start + timedelta(days=1)).scalar()
+    products = {}
+    for item in sales_by_product(from_date=day, to_date=day, db_session=db_session):
+        if item.name not in products:
+            products[item.name] = schemas.ClosingProductOut(name=item.name, quantity=Decimal(0), total=Decimal(0))
+        products[item.name].quantity += item.quantity
+        products[item.name].total += item.total
+    return schemas.CashClosingOut(date=day, cash_total=totals["cash"], transfer_total=totals["transfer"], dataphone_total=totals["dataphone"], total=totals["total"], opening_total=opening_total, expenses_total=expenses_total, purchases_total=purchases_total, outflows=outflows, sales_count=sales_count, products=list(products.values()), expected_cash=expected_cash, denomination_counts=counts, physical_cash=physical_cash, difference=physical_cash - expected_cash)
 
 
 @router.get("/cash-closing", response_model=schemas.CashClosingOut)
@@ -192,16 +225,6 @@ def export_daily_payment_methods_xlsx(
         )
 
     totals = _daily_payment_summary(day, db_session)
-    daily_expenses = (
-        db_session.query(models.FixedExpensePayment)
-        .outerjoin(models.FixedExpense)
-        .filter(
-            models.FixedExpensePayment.status == "manual",
-            models.FixedExpensePayment.due_date == day,
-        )
-        .order_by(models.FixedExpense.name.asc(), models.FixedExpensePayment.id.asc())
-        .all()
-    )
     openings = db_session.query(models.CashDrawerOpening).filter(
         models.CashDrawerOpening.business_date == day,
     ).all()
@@ -257,21 +280,20 @@ def export_daily_payment_methods_xlsx(
     sheet.merge_cells(start_row=expenses_header_row + 1, start_column=4, end_row=expenses_header_row + 1, end_column=5)
     row = expenses_header_row + 2
     expenses_first_row = row
-    for expense in daily_expenses:
-        catalog_entry = expense.fixed_expense
+    for expense in closing_data.outflows:
         cells(row, [
-            catalog_entry.name if catalog_entry else f"Gasto #{expense.fixed_expense_id}", "", "",
-            expense.concept or (catalog_entry.category if catalog_entry else "") or "", "", float(expense.amount),
+            f"{expense.reference}: {expense.name}", "", "",
+            expense.concept, "", float(expense.amount),
         ])
         sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
         sheet.merge_cells(start_row=row, start_column=4, end_row=row, end_column=5)
         row += 1
-    if not daily_expenses:
+    if not closing_data.outflows:
         cells(row, ["Sin gastos registrados", "", "", "", "", 0])
         sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
         row += 1
     expense_total_row = row
-    cells(row, ["TOTAL GASTOS CAJA", "", "", "", "", f"=SUM(F{expenses_first_row}:F{row - 1})"], total=True)
+    cells(row, ["TOTAL SALIDAS DE CAJA (GASTOS + COMPRAS)", "", "", "", "", f"=SUM(F{expenses_first_row}:F{row - 1})"], total=True)
     sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
     row += 2
     section(row, "CONCILIACIÓN FINAL DE CAJA")
@@ -282,8 +304,8 @@ def export_daily_payment_methods_xlsx(
         cells(r, [value], 6, total)
     reconciliation(1, "Base Inicial (aperturas registradas del día)", float(opening_total) if openings else None)
     reconciliation(2, "Ventas Efectivo", "=F6")
-    reconciliation(3, "Gastos registrados del día", f"=F{expense_total_row}")
-    reconciliation(4, "Efectivo Esperado en Caja (= Base Inicial + Ventas Efectivo - Gastos)", f'=IF(F{row+1}="","",F{row+1}+F{row+2}-F{row+3})', True)
+    reconciliation(3, "Gastos y compras pagadas con efectivo caja", f"=F{expense_total_row}")
+    reconciliation(4, "Efectivo Esperado (= Base + Ventas Efectivo - Salidas)", f'=IF(F{row+1}="","",F{row+1}+F{row+2}-F{row+3})', True)
     reconciliation(5, "Efectivo Real en Caja (conteo físico al cierre)", f"=C{cash_total_row}")
     reconciliation(6, "DIFERENCIA DE CAJA (Real - Esperado)", f'=IF(OR(F{row+5}="",F{row+4}=""),"",F{row+5}-F{row+4})', True)
     section(row+8, "OBSERVACIONES / NOVEDADES DEL TURNO")
@@ -296,19 +318,31 @@ def export_daily_payment_methods_xlsx(
     sheet.cell(row+14, 1, "Firma Cajero(a) / Responsable: __________________")
     sheet.merge_cells(start_row=row+14, start_column=4, end_row=row+14, end_column=6)
     sheet.cell(row+14, 4, "Firma Supervisor / Administrador: __________________")
+    summary_row = row + 16
+    section(summary_row, f"RESUMEN: Se registraron {closing_data.sales_count} ventas")
+    cells(summary_row + 1, ["Producto", "", "", "Cantidad", "", "Total ($)"], total=True)
+    for product_row, product in enumerate(closing_data.products, summary_row + 2):
+        cells(product_row, [product.name, "", "", float(product.quantity), "", float(product.total)])
+        sheet.merge_cells(start_row=product_row, start_column=1, end_row=product_row, end_column=3)
+    last_row = summary_row + 1 + len(closing_data.products)
     for col, width in {"A": 29, "B": 13, "C": 21, "D": 31, "E": 25, "F": 22}.items():
         sheet.column_dimensions[col].width = width
-    for r in range(1, row+15):
-        sheet.row_dimensions[r].height = 28
+    for r in range(1, last_row + 1):
+        sheet.row_dimensions[r].height = 32
+    # Long concepts remain readable, and large closings may span several pages.
+    for r in range(expenses_first_row, expense_total_row):
+        sheet.cell(r, 1).alignment = styles.Alignment(wrap_text=True, vertical="top")
+        sheet.cell(r, 4).alignment = styles.Alignment(wrap_text=True, vertical="top")
+        sheet.row_dimensions[r].height = max(32, 15 * (1 + len(str(sheet.cell(r, 4).value or "")) // 45))
     sheet.freeze_panes = "A6"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
     sheet.page_setup.fitToWidth = 1
-    sheet.page_setup.fitToHeight = 1
+    sheet.page_setup.fitToHeight = 0
     sheet.print_options.horizontalCentered = True
-    sheet.print_area = f"A1:F{row+14}"
+    sheet.print_area = f"A1:F{last_row}"
 
     output = BytesIO()
     workbook.save(output)
@@ -729,8 +763,15 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
         nonlocal y
         y = page_h - 40
 
+        def ensure_space(height=25):
+            nonlocal y
+            if y - height < 40:
+                pdf_obj.showPage()
+                y = page_h - 40
+
         def section(title: str, color) -> None:
             nonlocal y
+            ensure_space(48)
             pdf_obj.setFillColor(color)
             pdf_obj.rect(left, y - 17, content_w, 17, stroke=0, fill=1)
             pdf_obj.setFont("Helvetica-Bold", 8)
@@ -744,11 +785,15 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
             pdf_obj.setFont(font, size)
             pdf_obj.setFillColor(color or text_dark)
             for chunk in simpleSplit(str(content), font, size, content_w - indent) or [""]:
+                ensure_space(gap)
+                pdf_obj.setFont(font, size)
+                pdf_obj.setFillColor(color or text_dark)
                 pdf_obj.drawString(left + indent, y, chunk)
                 y -= gap
 
         def row(label: str, value: str, bg, fg, size: int = 10, label_size: int = 8) -> None:
             nonlocal y
+            ensure_space(size + 20)
             pdf_obj.setFillColor(text_dark)
             pdf_obj.setFont("Helvetica-Bold", label_size)
             pdf_obj.drawString(left + 4, y, label)
@@ -807,10 +852,17 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
         text(f"Transferencias:  $ {closing.transfer_total:,.0f}", gap=10)
         row("Total ventas registradas", f"$ {closing.total:,.0f}", dark_blue, white, size=10)
 
+        section("GASTOS Y COMPRAS PAGADAS CON EFECTIVO CAJA", dark_blue)
+        for outflow in closing.outflows:
+            text(f"{outflow.reference}: {outflow.name} — $ {outflow.amount:,.0f}", bold=True)
+            text(outflow.concept, color=muted, indent=8)
+        if not closing.outflows:
+            text("Sin salidas registradas para este día.")
+
         # ---- Conciliación final ----
         section("CONCILIACIÓN FINAL DE CAJA", dark_blue)
-        text("Efectivo esperado = Base inicial + Ventas en efectivo − Gastos del día", bold=True, size=7, color=muted, gap=10)
-        text(f"  $ {closing.opening_total:,.0f}  +  $ {closing.cash_total:,.0f}  −  $ {closing.expenses_total:,.0f}", size=8, indent=8, gap=16)
+        text("Efectivo esperado = Base + Ventas en efectivo − Gastos − Compras de caja", bold=True, size=7, color=muted, gap=10)
+        text(f"  $ {closing.opening_total:,.0f} + $ {closing.cash_total:,.0f} − $ {closing.expenses_total:,.0f} − $ {closing.purchases_total:,.0f}", size=8, indent=8, gap=16)
         row("Efectivo esperado", f"$ {closing.expected_cash:,.0f}", light_blue, dark_blue, size=11)
         row("Efectivo real contado", f"$ {closing.physical_cash:,.0f}", light_green, green, size=11)
         sign = "-$ " if closing.difference < 0 else "$ "
@@ -820,7 +872,8 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
 
         # ---- Observaciones ----
         section("OBSERVACIONES / NOVEDADES DEL TURNO", muted)
-        text("El efectivo esperado usa únicamente ventas pagadas en efectivo y gastos registrados del día.")
+        text("Las compras y abonos con efectivo caja se descuentan en su fecha de pago.")
+        ensure_space(50)
         pdf_obj.setStrokeColor(line_gray)
         pdf_obj.setLineWidth(0.8)
         pdf_obj.line(left, y, right, y)
@@ -830,24 +883,49 @@ def export_cash_closing_pdf(day: date, db_session: Session = Depends(db.get_db))
         pdf_obj.drawString(left, y, "Firma Cajero(a)/Responsable:  ______________________________")
         y -= 14
         pdf_obj.drawString(left, y, "Firma Administrador/Supervisor:  ____________________________")
-
-    measure_out = BytesIO()
-    measure_pdf = canvas.Canvas(measure_out, pagesize=A4)
-    _render(measure_pdf)
-    content_height = (page_h - 40) - y
-    available_height = page_h - 60
-    scale = min(1.0, available_height / content_height) if content_height > 0 else 1.0
+        y -= 26
+        section(f"RESUMEN: Se registraron {closing.sales_count} ventas", dark_blue)
+        for product in closing.products:
+            text(f"{product.quantity:g} × {product.name} — $ {product.total:,.0f}")
 
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=A4)
-    if scale < 1.0:
-        pdf.translate(0, page_h)
-        pdf.scale(scale, scale)
-        pdf.translate(0, -page_h)
     _render(pdf)
     pdf.save()
     output.seek(0)
     return Response(content=output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="cierre-caja-{day.isoformat()}.pdf"'})
+
+
+@router.patch("/{sale_id}/payment-method", response_model=schemas.SaleOut)
+def update_sale_payment_method(
+    sale_id: int, payload: schemas.SalePaymentMethodUpdate,
+    db_session: Session = Depends(db.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if current_user.role != "administrator":
+        raise HTTPException(403, "Solo el administrador puede corregir el medio de pago.")
+    sale = db_session.query(models.Sale).filter(models.Sale.id == sale_id).with_for_update().first()
+    if not sale:
+        raise HTTPException(404, "Venta no encontrada")
+    if sale.status != "active":
+        raise HTTPException(409, "No se puede corregir una venta anulada.")
+    previous = payload.previous_payment_method.value if payload.previous_payment_method else None
+    if sale.payment_method != previous:
+        raise HTTPException(409, "La venta cambió. Actualiza el historial antes de corregirla.")
+    method = "dataphone" if payload.payment_method == schemas.PaymentMethod.card else payload.payment_method.value
+    if sale.payment_method != method:
+        db_session.add(models.SalePaymentMethodChange(
+            sale_id=sale.id, user_id=current_user.id, previous_method=sale.payment_method,
+            payment_method=method, previous_cash_received=sale.cash_received,
+            previous_denomination_counts=sale.cash_denomination_counts or {},
+        ))
+        sale.payment_method = method
+        # A payment correction cannot reconstruct cash received or denominations.
+        sale.cash_received = None
+        sale.cash_denomination_counts = {}
+        db_session.commit()
+        db_session.refresh(sale)
+    return sale
 
 
 @router.get("/{sale_id}", response_model=schemas.SaleOut)

@@ -14,6 +14,9 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCurrentUserRole } from "@/hooks/use-current-user-role";
+import DailyPayments from "./daily-payments";
+import PaymentMethodEditor from "./payment-method-editor";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -218,10 +221,13 @@ function PaginationControls({
 export default function Sales() {
   const [month, setMonth] = useState(currentMonth);
   const [range, setRange] = useState<DateRange>(currentMonthRange);
-  return <><MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}><DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} /></MonthFilter><MonthlySales key={`${month}-${range.from}-${range.to}`} month={month} range={range} /></>;
+  const [reloadToken, setReloadToken] = useState(0);
+  return <><DailyPayments reloadToken={reloadToken} onSelectDay={(day) => { setMonth(day.slice(0, 7)); setRange({ from: day, to: day }); }} /><MonthFilter value={month} onChange={(value) => { setMonth(value); setRange({ from: `${value}-01`, to: monthLastDay(value) }); }}><DateRangeFilter value={range} onChange={setRange} onClear={() => { const value = currentMonth(); setMonth(value); setRange(currentMonthRange()); }} /></MonthFilter><MonthlySales key={`${month}-${range.from}-${range.to}`} month={month} range={range} onPaymentUpdated={() => setReloadToken((value) => value + 1)} /></>;
 }
 
-function MonthlySales({ month, range }: { month: string; range: DateRange }) {
+function MonthlySales({ month, range, onPaymentUpdated }: { month: string; range: DateRange; onPaymentUpdated: () => void }) {
+  const { isAdministrator } = useCurrentUserRole();
+  const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
   const [salesAdjustmentsByMonth, setSalesAdjustmentsByMonth] = useState<
@@ -395,7 +401,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={loadSalesData}
+              onClick={() => { void loadSalesData(); onPaymentUpdated(); }}
               className="rounded-lg border border-stroke px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
             >
               Actualizar
@@ -403,6 +409,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
           </div>
         </div>
 
+        {paymentMessage ? <p role="status" className="mb-4 text-sm text-primary">{paymentMessage}</p> : null}
         {loading ? (
           <p className="text-body text-sm">Cargando ventas...</p>
         ) : errors.sales ? (
@@ -456,7 +463,7 @@ function MonthlySales({ month, range }: { month: string; range: DateRange }) {
                       )}
                     </TableCell>
                     <TableCell>{formatDate(sale.created_at)}</TableCell>
-                    <TableCell>{paymentMethodLabel(sale.payment_method)}</TableCell>
+                    <TableCell>{isAdministrator && sale.status !== "void" ? <PaymentMethodEditor key={`${sale.id}-${sale.payment_method}`} saleId={sale.id} method={sale.payment_method} onSaved={() => { setPaymentMessage(`Medio de pago de la venta #${sale.id} actualizado. Los totales y el cierre se recalculan; verifica el conteo físico si cambió el efectivo.`); onPaymentUpdated(); void loadSalesData(); }} /> : paymentMethodLabel(sale.payment_method)}</TableCell>
                     <TableCell>
                       <div
                         className={`max-w-fit rounded-full px-3.5 py-1 text-sm font-medium ${saleStatusMeta(sale.status).className}`}

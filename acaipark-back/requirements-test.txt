@@ -1,0 +1,4 @@
+-r requirements.txt
+httpx==0.28.1
+tzdata==2025.3
+pypdf==6.1.1
